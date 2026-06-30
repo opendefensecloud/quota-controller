@@ -1,0 +1,19 @@
+# Local secrets — never commit (see SOPS+age for in-repo encrypted config)
+.env
+.env.*
+*.key
+*.pem
+.secrets/
+
+# direnv
+.direnv/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Go build output
+/bin/
+/dist/
+coverprofile
