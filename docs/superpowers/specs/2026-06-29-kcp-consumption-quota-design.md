@@ -172,6 +172,18 @@ read RBAC. Consumer identified from the `kcp.io/cluster` admission annotation.
 
 ## 6. Data model (CRDs)
 
+**Resource identity (kcp convention).** A resource served through an `APIExport` is identified
+not by `group/resource` alone but by the export's identity — kcp writes it to
+`APIExport.status.identityHash` and addresses the resource as `resource.group:identityHash`
+(see the SDK's `GRIString`/`EqualGRI` and `PermissionClaim.identityHash`). Two providers can
+export the same `group/resource`, so **every governed-resource reference in these CRDs carries
+the identity tuple `(group, resource, identityHash)`**, and `QuotaUsage` / the webhook registry
+are keyed by it. The `ConsumptionQuota` controller resolves `identityHash` from the governed
+`APIExport.status.identityHash` (the provider's own export, in the same workspace) and stamps it
+onto the policy status and every derived `QuotaGrant` / `QuotaClaim`, so consumers and the
+webhook never have to guess it. Any `permissionClaim` we make on a governed resource likewise
+carries its `identityHash`.
+
 ### 6.1 `ConsumptionQuota` — provider policy (provider WS, quota-provider export)
 
 ```yaml
@@ -189,6 +201,8 @@ spec:
   defaultLimit: 3                    # every consumer starts here (no grant needed)
   autoApproveCeiling: 10             # requests ≤ this are auto-granted; above → manual (omit/0 = always manual)
   # iteration 2 (by: Sum) will add: fieldRef {path: .status.sizeBytes}, quantities with units
+status:
+  identityHash: a1b2c3…              # resolved by the controller from the governed APIExport.status.identityHash
 ```
 
 ### 6.2 `QuotaGrant` — provider decision / override (provider WS, quota-provider export)
@@ -200,7 +214,11 @@ auto-approve; providers may also create grants proactively. **Enforcement's over
 ```yaml
 spec:
   consumer: <consumer logical cluster>
-  governedRef: { name: bucket-quota }   # the ConsumptionQuota it overrides
+  governedRef: { name: bucket-quota }     # the ConsumptionQuota it overrides
+  governed:                               # identity tuple, stamped by the controller
+    group: s3.example.com
+    resource: buckets
+    identityHash: a1b2c3…
   requestedLimit: 8                       # mirrored from the claim (informational for the provider)
   grantedLimit: 8                         # set on approval
   decision: Approved                      # Pending | Approved | Rejected
@@ -212,10 +230,16 @@ status:
 
 ### 6.3 `QuotaClaim` — consumer request + view (consumer WS, quota-consumer export)
 
+**Controller-created, consumer-update-only.** The controller pre-creates one `QuotaClaim` per
+`(consumer, governed resource)` (with the identity stamped in); consumers may **only update**
+`spec.requestedLimit` — they cannot `create` or `delete` claims, nor write `status`. This is
+enforced by `maximalPermissionPolicy` (§10) and means the set of claims is provider-controlled,
+not consumer-spawnable.
+
 ```yaml
 spec:
-  governed: { group: s3.example.com, resource: buckets }
-  requestedLimit: 8            # optional; omit = "just show me my limit"
+  governed: { group: s3.example.com, resource: buckets, identityHash: a1b2c3… }  # stamped by controller
+  requestedLimit: 8            # the ONLY field consumers may change; omit = "just show me my limit"
 status:                         # controller-written; read-only to consumers via maximalPermissionPolicy
   phase: Approved              # None | Pending | Approved | Rejected
   effectiveLimit: 8           # what the webhook will actually enforce right now
@@ -226,8 +250,9 @@ status:                         # controller-written; read-only to consumers via
 
 ### 6.4 `QuotaUsage` — internal accounting (quota-ctrl WS, not exported)
 
-Keyed by `(consumerCluster, gvr)`. Accounting only — the limit lives in the policy/grant,
-resolved by the webhook (§9).
+Keyed by `(consumerCluster, group, resource, identityHash)`. Accounting only — the limit lives
+in the policy/grant, resolved by the webhook (§9). The identity in the key is what keeps two
+providers' same-named resources in separate ledgers.
 
 ```yaml
 status:
@@ -295,8 +320,11 @@ sequenceDiagram
 ### 7.1 Webhook — on `CREATE`
 
 ```text
-key   := (consumerCluster from kcp.io/cluster, gvr)
-limit := effectiveLimit(consumerCluster, gvr)   # §9, from in-memory registry
+key   := (consumerCluster from kcp.io/cluster, group, resource, identityHash)
+limit := effectiveLimit(key)                     # §9, from in-memory registry
+# identityHash comes from the webhook's registry entry (the ConsumptionQuota that installed
+# this rule), NOT from the admission request — so it is unambiguous even if another provider
+# exports the same group/resource.
 retry on conflict:
     u := GET QuotaUsage[key]            # create with confirmed=0 if absent
     used := u.status.confirmed + countLive(u.status.reservations)
@@ -378,8 +406,8 @@ sequenceDiagram
     participant WH as Webhook
 
     RC->>QCL: pre-create (status.effectiveLimit = default)
-    Note over CU,QCL: consumer WRITES spec, READ-ONLY status (maximalPermissionPolicy)
-    CU->>QCL: set spec.requestedLimit = 8
+    Note over CU,QCL: consumer UPDATEs spec.requestedLimit only — no create/delete, read-only status (maximalPermissionPolicy)
+    CU->>QCL: update spec.requestedLimit = 8
     RC->>CQ: read autoApproveCeiling
     alt requestedLimit <= ceiling
         RC->>QG: QuotaGrant{Approved, grantedLimit: 8}
@@ -395,10 +423,11 @@ sequenceDiagram
 
 - Enforcement reads **only** provider-workspace objects (`ConsumptionQuota` + `QuotaGrant`).
   A consumer-workspace object never affects the enforced limit.
-- `maximalPermissionPolicy` on the quota-consumer export caps consumers to writing
-  `quotaclaims` (their request) and **reading** `quotaclaims/status` — so they cannot forge a
-  decision even in their own workspace. The controller (as the export owner, via the VW) is
-  not subject to the policy and writes status normally.
+- `maximalPermissionPolicy` on the quota-consumer export caps consumers to **updating**
+  `spec.requestedLimit` on the controller-pre-created claims and **reading** `quotaclaims/status`
+  — they cannot `create` or `delete` claims (no claim-spam / no deleting the record), and cannot
+  forge a decision in `status`. The controller (as the export owner, via the VW) is not subject
+  to the policy and pre-creates / writes status normally.
 - The `autoApproveCeiling` lives in the provider workspace; consumers cannot raise it. Setting
   a huge `requestedLimit` merely routes to manual approval.
 
@@ -409,9 +438,9 @@ remains the counting authority. Two complementary mechanisms.
 ## 9. Effective-limit resolution
 
 ```text
-effectiveLimit(consumer, gvr):
-    if exists approved QuotaGrant for (consumer, ConsumptionQuota(gvr)) → grant.grantedLimit
-    else → ConsumptionQuota(gvr).defaultLimit
+effectiveLimit(consumer, group, resource, identityHash):
+    if exists approved QuotaGrant for (consumer, group, resource, identityHash) → grant.grantedLimit
+    else → matching ConsumptionQuota.defaultLimit
 ```
 
 ```mermaid
@@ -426,7 +455,7 @@ flowchart TD
 The webhook maintains an in-memory registry (analogous to dep-ctrl's `RuleRegistry`) built by
 watching `ConsumptionQuota` **and** `QuotaGrant` across provider workspaces via the
 quota-provider VW — no per-request policy read, no bootstrap race. The registry is indexed by
-governed GVR (+ consumer, for grants).
+the identity tuple `(group, resource, identityHash)` (+ consumer, for grants).
 
 **Limit decreases are not retroactive.** Lowering a `defaultLimit` or `grantedLimit` below a
 consumer's current usage does not delete existing objects; it blocks new `CREATE`s until usage
@@ -438,9 +467,18 @@ Static bootstrap model, as in dep-ctrl. No dynamic RBAC at runtime.
 
 - **permissionClaim (quota-provider export):** `validatingwebhookconfigurations` — to install
   webhooks. Providers **accept** it in their `APIBinding`.
-- **maximalPermissionPolicy (quota-consumer export):** allow consumers `create/get/list/
-  watch/update/delete` on `quotaclaims`, but only `get/list/watch` on `quotaclaims/status`
-  (subjects prefixed `apis.kcp.io:binding:`). This is the R10 workflow-integrity guard.
+- **maximalPermissionPolicy (quota-consumer export):** allow consumers **only**
+  `get/list/watch/update/patch` on `quotaclaims` and `get/list/watch` on `quotaclaims/status`
+  (subjects prefixed `apis.kcp.io:binding:`). Crucially, **`create` and `delete` are omitted** —
+  so consumers can edit `spec.requestedLimit` on the claims the controller pre-created for them,
+  but cannot spawn arbitrary claims or delete existing ones, and cannot write `status`. The
+  controller writes via the export VW (not subject to the policy), so its pre-creation and
+  status writes are unaffected. This is the R10 workflow-integrity guard. Feasibility note:
+  `maximalPermissionPolicy` is ordinary RBAC `PolicyRule`s, and RBAC distinguishes `create`
+  from `update`/`patch` per (sub)resource — so "update-only, no create/delete, read-only status"
+  is expressible exactly. RBAC cannot restrict *which* `spec` fields are patched, but that is
+  harmless: `requestedLimit` is the only meaningful field, `status` is protected, and
+  enforcement never trusts claim `spec` beyond triggering the provider-gated approval path.
 - **quota-ctrl workspace RBAC (all binaries):** `apiexportendpointslices` get/list/watch +
   `apiexports/content` on **both** quota exports.
 - **Workspace-resolution RBAC (controller):** `tenancy.kcp.io/workspaces` get/list/watch +
@@ -486,14 +524,20 @@ carry quantities). CAS, reconciler truth, and TTL are unchanged.
 1. **CREATE webhook interception:** dep-ctrl proves a provider-workspace webhook intercepts
    `DELETE` across consumers; `CREATE` is symmetric and expected to work — verify with a spike
    (load-bearing kcp behavior).
-2. **QuotaClaim proactive-creation discovery (R11):** how the controller enumerates
-   "(consumer, governed resource) pairs" to pre-create claims — via consumers' `APIBinding`s to
-   the provider service export, or on first observed use. Confirm the cleanest signal.
-3. **Provider service VW access (reconciler):** confirm the bootstrap grant path and that a
+2. **QuotaClaim proactive-creation discovery (R11) — now load-bearing:** because consumers
+   can no longer `create` claims (§10), the controller is the *only* way a claim comes to
+   exist, so it must reliably cover every legitimate `(consumer, governed resource)` pair —
+   most likely by watching consumers' `APIBinding`s to the provider service export. Confirm the
+   signal and the bootstrap latency (a consumer briefly cannot request until its claim exists).
+3. **Identity resolution timing:** the controller stamps `identityHash` from the governed
+   `APIExport.status.identityHash`; confirm that status is populated before quotas are wired,
+   and decide behavior if a governed export's identity rotates.
+4. **Provider service VW access (reconciler):** confirm the bootstrap grant path and that a
    single cross-consumer watch scales.
-4. **maximalPermissionPolicy status split:** verify the `quotaclaims` vs `quotaclaims/status`
-   subresource distinction behaves as intended for a bound (consumer) identity.
-5. **Workspace-nesting limitation:** dep-ctrl's resolver only handles direct children of
+5. **maximalPermissionPolicy verbs:** verify that granting `update/patch` while omitting
+   `create`/`delete` on `quotaclaims`, plus read-only `quotaclaims/status`, behaves as intended
+   for a bound (consumer) identity.
+6. **Workspace-nesting limitation:** dep-ctrl's resolver only handles direct children of
    `root`; decide whether to lift it here.
 
 ## 15. Testing strategy
@@ -505,8 +549,10 @@ carry quantities). CAS, reconciler truth, and TTL are unchanged.
 - **e2e (kind + kcp, mirroring dep-ctrl's suite):** provider policy; consumer creates up to N
   (ok) / N+1 (denied); concurrent burst never overshoots; fail-closed on webhook-down; delete
   frees a slot; **self-service:** consumer requests ≤ ceiling → auto-approved and enforced;
-  request > ceiling → Pending → provider approves → enforced; consumer cannot write
-  `quotaclaims/status` (maximalPermissionPolicy denies).
+  request > ceiling → Pending → provider approves → enforced; consumer **cannot** `create` or
+  `delete` a `QuotaClaim` and cannot write `quotaclaims/status` (maximalPermissionPolicy denies),
+  but **can** `update` `spec.requestedLimit` on a controller-created claim; two providers
+  exporting the same `group/resource` are counted in separate ledgers (identity keying).
 
 ## 16. Out of scope (iteration 1)
 
