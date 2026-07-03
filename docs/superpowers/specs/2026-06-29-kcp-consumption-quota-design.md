@@ -8,6 +8,13 @@
 
 **Decision records:** [ADR-001](../../../architecture/ADR-001-external-cas-quota-enforcement.md) (enforcement mechanism), [ADR-002](../../../architecture/ADR-002-self-service-quota-requests.md) (self-service request/approval).
 
+> **Implementation status (2026-07-03):** this spec designs all of Iteration 1, but delivery is
+> split. **Iteration 1a — count enforcement — is implemented and deployed.** **Iteration 1b — the
+> self-service request/approval workflow (§§ below + ADR-002) — is designed but NOT yet
+> implemented** (no plan exists for it). Iteration 2 (aggregate quotas) is designed-for only. The
+> enforcement plan calls 1a/1b "Phase 1/Phase 2". See the README "Status / Roadmap" for the
+> canonical status table.
+
 ## 1. Problem
 
 In a [kcp](https://kcp.io) environment, service providers expose APIs via `APIExport`s.
@@ -19,7 +26,8 @@ The provider needs to **cap how many instances each consumer workspace may creat
 higher cap, which the provider can approve or reject (or which is auto-approved under a
 provider-set ceiling) — and **see** their current cap and the state of any request.
 
-- **Iteration 1 (this spec):** cap by **count**, plus the full self-service workflow.
+- **Iteration 1 (this spec):** cap by **count** *(1a — **implemented**)*, plus the full
+  self-service workflow *(1b — **designed, not yet implemented**)*.
 - **Iteration 2 (designed for, not built):** cap by an **aggregate property** — e.g. buckets
   with aggregated size < 1 TiB.
 

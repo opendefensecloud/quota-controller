@@ -1,0 +1,39 @@
+# RBAC in the quota-ctrl workspace for the quota-controller components.
+# Applied during e2e setup using a privileged identity.
+#
+# Both components connect to the quota-ctrl workspace to:
+# 1. Discover the VW URL via APIExportEndpointSlice
+# 2. Access the quota-provider APIExport virtual workspace (apiexports/content)
+# 3. Read and write QuotaUsage and ConsumptionQuota objects
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-quotactrl
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotausages", "quotausages/status", "consumptionquotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-quotactrl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-quotactrl
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "system:serviceaccount:quota-system:quota-controller"
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "system:serviceaccount:quota-system:quota-webhook"

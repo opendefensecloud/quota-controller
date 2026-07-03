@@ -1,0 +1,9 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIBinding
+metadata:
+  name: s3.example.com
+spec:
+  reference:
+    export:
+      path: ${S3_PROVIDER_PATH}
+      name: s3.example.com

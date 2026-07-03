@@ -1,0 +1,31 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: quota-provider
+spec:
+  # The webhook controller will install ValidatingWebhookConfigurations in the
+  # provider workspace. Providers accept this permissionClaim when binding the
+  # quota-provider APIExport so that the controller can create the admission
+  # gate on their behalf.
+  permissionClaims:
+  - group: admissionregistration.k8s.io
+    resource: validatingwebhookconfigurations
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - delete
+  # ConsumptionQuota is the exported resource — providers bind this to enforce
+  # per-workspace consumption limits on governed resources.
+  resources:
+  - group: quota.opendefense.cloud
+    name: consumptionquotas
+    schema: v260702-ca1f392.consumptionquotas.quota.opendefense.cloud
+    storage:
+      crd: {}
+  # QuotaUsage is intentionally omitted: it is an internal ledger managed
+  # exclusively in the quota-ctrl workspace and is never exported to providers
+  # or consumers.
+status: {}

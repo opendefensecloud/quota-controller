@@ -1,0 +1,4 @@
+# Vulnerabilities acknowledged as not-applicable are ignored here, with a reason.
+# [[IgnoredVulns]]
+# id = "GO-2024-XXXX"
+# reason = "why this does not affect quota-controller"

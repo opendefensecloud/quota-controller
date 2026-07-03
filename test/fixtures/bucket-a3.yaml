@@ -1,0 +1,7 @@
+apiVersion: s3.example.com/v1
+kind: Bucket
+metadata:
+  name: bucket-a3
+  namespace: default
+spec:
+  region: eu-west-1

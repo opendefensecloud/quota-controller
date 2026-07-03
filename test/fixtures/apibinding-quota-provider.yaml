@@ -1,0 +1,16 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIBinding
+metadata:
+  name: quota-provider
+spec:
+  reference:
+    export:
+      path: ${QUOTA_CTRL_PATH}
+      name: quota-provider
+  permissionClaims:
+    - group: "admissionregistration.k8s.io"
+      resource: "validatingwebhookconfigurations"
+      verbs: ["get", "list", "watch", "create", "update", "delete"]
+      selector:
+        matchAll: true
+      state: Accepted

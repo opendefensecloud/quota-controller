@@ -1,0 +1,61 @@
+{{- if and .Values.webhook.tls.certManager.enabled (not .Values.webhook.tls.existingSecret) }}
+---
+# Tier 1 — selfSigned bootstrap Issuer (no CA needed to get started).
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}-selfsigned
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# Tier 2 — CA Certificate (isCA: true) issued by the selfSigned Issuer.
+# cert-manager stores the CA key-pair in <webhook.fullname>-ca.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}-ca
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ include "quota-controller.webhook.fullname" . }}-ca
+  secretName: {{ include "quota-controller.webhook.fullname" . }}-ca
+  issuerRef:
+    name: {{ include "quota-controller.webhook.fullname" . }}-selfsigned
+    kind: Issuer
+---
+# Tier 2 — CA Issuer backed by the CA Certificate Secret above.
+# Issues the webhook server Certificate so cert-manager populates ca.crt.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}-ca
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "quota-controller.webhook.fullname" . }}-ca
+---
+# Webhook server Certificate — issued by the CA Issuer so that cert-manager
+# populates ca.crt in the TLS Secret.  The controller mounts ca.crt from this
+# Secret via --webhook-ca-bundle-path.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "quota-controller.webhook.tlsSecretName" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "quota-controller.webhook.tlsSecretName" . }}
+  dnsNames:
+    - {{ include "quota-controller.webhook.serviceFQDN" . }}
+    - {{ include "quota-controller.webhook.serviceFQDN" . }}.cluster.local
+    {{- range .Values.webhook.tls.certManager.additionalDnsNames }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: {{ include "quota-controller.webhook.fullname" . }}-ca
+    kind: Issuer
+{{- end }}
