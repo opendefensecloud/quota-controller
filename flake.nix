@@ -38,16 +38,21 @@
             kubernetes-controller-tools
             setup-envtest
           ];
+          # Passed to mkShell so dev-kit appends it AFTER its git-hooks setup —
+          # importantly after the `[[ -f pre-commit.legacy ]] && rm` line, whose
+          # exit status is 1 when the legacy file is absent. Ending the hook on the
+          # `if` below (which returns 0 under direnv) keeps `direnv reload` from
+          # failing with "error exit status 1".
+          shellHook = ''
+            export IN_NIX_SHELL=1
+            # Drop into zsh for an interactive `nix develop`, but NOT when the dev
+            # shell is evaluated non-interactively (e.g. direnv's `use flake`, which
+            # runs the hook via `nix print-dev-env` and would be hijacked by `exec`).
+            if [ -z "$DIRENV_IN_ENVRC" ] && [ -t 1 ]; then
+              exec zsh
+            fi
+          '';
         };
-        shellHook = ''
-          export IN_NIX_SHELL=1
-          # Drop into zsh for an interactive `nix develop`, but NOT when the dev
-          # shell is evaluated non-interactively (e.g. direnv's `use flake`, which
-          # runs the hook via `nix print-dev-env` and would be hijacked by `exec`).
-          if [ -z "$DIRENV_IN_ENVRC" ] && [ -t 1 ]; then
-            exec zsh
-          fi
-        '';
       }
     );
 }
