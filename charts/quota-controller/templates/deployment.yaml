@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quota-controller.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quota-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quota-controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "quota-controller.serviceAccountName" . }}
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          command:
+            - /quota-controller
+          args:
+            - --api-export-name={{ .Values.apiExportName }}
+            - --webhook-base-url={{ include "quota-controller.webhook.baseURL" . }}
+            - --webhook-ca-bundle-path=/etc/webhook-ca/ca.crt
+            - --health-probe-bind-address={{ .Values.controller.healthProbeBindAddress }}
+            - --leader-elect={{ .Values.controller.leaderElect }}
+            - --leader-election-id={{ .Values.controller.leaderElectionID }}
+            - --leader-election-namespace={{ .Values.controller.leaderElectionNamespace | default "default" }}
+            - --reservation-ttl={{ .Values.controller.reservationTTL }}
+            - --resync-interval={{ .Values.controller.resyncInterval }}
+          {{- if .Values.controller.kubeconfig.secretName }}
+          env:
+            - name: KUBECONFIG
+              value: /etc/kcp-kubeconfig/{{ .Values.controller.kubeconfig.key }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+          volumeMounts:
+            {{- if .Values.controller.kubeconfig.secretName }}
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp-kubeconfig
+              readOnly: true
+            {{- end }}
+            - name: webhook-ca
+              mountPath: /etc/webhook-ca
+              readOnly: true
+          {{- with .Values.controller.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- if .Values.controller.kubeconfig.secretName }}
+        - name: kcp-kubeconfig
+          secret:
+            secretName: {{ .Values.controller.kubeconfig.secretName }}
+        {{- end }}
+        - name: webhook-ca
+          secret:
+            secretName: {{ include "quota-controller.webhook.tlsSecretName" . }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

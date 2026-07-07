@@ -1,0 +1,6 @@
+apiVersion: v2
+name: quota-controller
+description: Quota controller and webhook for kcp — enforces per-workspace consumption quotas via the quota-provider APIExport.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

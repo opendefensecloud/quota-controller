@@ -1,0 +1,33 @@
+# RBAC in the root workspace for the quota-controller.
+# Applied during e2e setup using a system:kcp:admin identity via front-proxy.
+#
+# Only the controller has rules here. The webhook's broad get/list access
+# lives in the system:admin workspace of the root shard (see
+# system-admin-rbac-bootstrap.yaml) and propagates shard-wide.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller
+rules:
+  # Enter child workspaces through virtual workspace endpoints.
+  - apiGroups: ["core.kcp.io"]
+    resources: ["workspaces/content"]
+    verbs: ["access"]
+  # Read Workspace objects to resolve workspace paths to logical cluster names.
+  - apiGroups: ["tenancy.kcp.io"]
+    resources: ["workspaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "system:serviceaccount:quota-system:quota-controller"

@@ -1,0 +1,37 @@
+name: Helm Lint
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Lint Helm charts
+        run: |
+          for chart in charts/*/; do
+            if [ -f "${chart}Chart.yaml" ]; then
+              echo "Linting chart: ${chart}"
+              helm lint "${chart}"
+            fi
+          done
+
+      - name: Template Helm charts
+        run: |
+          for chart in charts/*/; do
+            if [ -f "${chart}Chart.yaml" ]; then
+              echo "Templating chart: ${chart}"
+              helm template test "${chart}"
+            fi
+          done

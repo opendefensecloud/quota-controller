@@ -1,0 +1,68 @@
+##############################################################################
+# Per-provider RBAC template — apply in the PROVIDER workspace.
+#
+# The accounting reconciler watches live objects across every consumer
+# workspace by reading through each provider's *service* APIExport virtual
+# workspace.  For this to work the quota-controller ServiceAccount must have
+# read access to that APIExport's content projection.
+#
+# This ClusterRole + ClusterRoleBinding MUST be applied by the provider in
+# their own workspace (e.g. root:my-provider), NOT in root:cloud-api-system.
+#
+# Usage:
+#   helm template quota-controller charts/quota-controller \
+#     --set providerRBAC.enabled=true \
+#     --set providerRBAC.serviceAPIExportName=my-service | \
+#   kubectl --context root:my-provider apply -f -
+##############################################################################
+
+{{- if .Values.providerRBAC.enabled }}
+---
+# ClusterRole: read access to the provider's service APIExport content.
+# Grants the accounting reconciler the ability to list/watch governed objects
+# across all consumer workspaces via the provider's virtual workspace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller:provider-service-apiexport-reader
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+    quota-controller/provider-apiexport: {{ .Values.providerRBAC.serviceAPIExportName | quote }}
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports"]
+    resourceNames: [{{ .Values.providerRBAC.serviceAPIExportName | quote }}]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: [{{ .Values.providerRBAC.serviceAPIExportName | quote }}]
+    verbs: ["get", "list", "watch"]
+  # Resolving the governed kind and the virtual-workspace URL requires reading the
+  # service export's APIResourceSchemas and its APIExportEndpointSlice. These are
+  # discovered by name at runtime (the slice name is derived, not fixed), so they
+  # cannot be constrained with resourceNames.
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiresourceschemas", "apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding: bind the above role to the quota-controller SA.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller:provider-service-apiexport-reader
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+    quota-controller/provider-apiexport: {{ .Values.providerRBAC.serviceAPIExportName | quote }}
+subjects:
+  # kcp presents the controller across the front-proxy as the virtual user
+  # "system:serviceaccount:<namespace>:<name>", NOT as a ServiceAccount subject
+  # (which only resolves inside the controller's own logical cluster). Binding the
+  # User form is what actually authorizes the cross-workspace APIExport reads.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: system:serviceaccount:{{ .Values.providerRBAC.controllerNamespace | default .Release.Namespace }}:{{ .Values.providerRBAC.controllerServiceAccountName | default (include "quota-controller.serviceAccountName" .) }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller:provider-service-apiexport-reader
+{{- end }}

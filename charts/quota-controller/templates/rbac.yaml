@@ -1,0 +1,126 @@
+##############################################################################
+# Bootstrap RBAC for the quota-ctrl workspace (root:cloud-api-system).
+#
+# Applied by the chart installer in the kcp workspace where the chart is
+# deployed. The kcp front-proxy translates these standard k8s RBAC objects
+# to kcp workspace-scoped permissions.
+##############################################################################
+
+# ---------------------------------------------------------------------------
+# Controller: kcp workspace-scoped permissions
+# ---------------------------------------------------------------------------
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quota-controller.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+rules:
+  # Discover the virtual-workspace URL for the quota-provider APIExport.
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+  # Read the quota-provider APIExport (identity resolution + endpoint listing).
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch"]
+  # Watch resources projected by the quota-provider virtual workspace.
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch"]
+  # Workspace resolution: enumerate consumer workspace logical-cluster paths.
+  - apiGroups: ["tenancy.kcp.io"]
+    resources: ["workspaces"]
+    verbs: ["get", "list", "watch"]
+  # QuotaUsage ledgers (internal, in the quota-ctrl workspace).
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotausages", "quotausages/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Leader-election lease.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Health/event recording.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quota-controller.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quota-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quota-controller.fullname" . }}
+---
+# Bind the built-in kcp workspace-access ClusterRole so the controller may
+# resolve logical-cluster names for the consumer workspaces it governs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quota-controller.fullname" . }}-workspace-access
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quota-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kcp:workspace:access
+
+# ---------------------------------------------------------------------------
+# Webhook: kcp workspace-scoped permissions
+# The webhook needs the same endpoint-slice + VW content access to mirror
+# ConsumptionQuota limits into its in-memory registry.
+# NOTE: no broad consumer-workspace read RBAC is granted to the webhook.
+# ---------------------------------------------------------------------------
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch"]
+  # QuotaUsage ledgers (admission reservations).
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotausages", "quotausages/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quota-controller.webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quota-controller.webhook.fullname" . }}

@@ -1,0 +1,141 @@
+imagePullSecrets: []
+
+# Name of the quota-provider APIExport (must match the APIExport applied to the kcp workspace).
+apiExportName: quota-provider
+
+# kcp workspace where the quota-controller is installed. Used for documentation;
+# the kubeconfig's current context must already point to this workspace.
+kcp:
+  workspace: root:cloud-api-system
+
+# Controller configuration.
+controller:
+  replicas: 1
+
+  # Image built from the Dockerfile's "controller" target (CI publishes it as
+  # quota-controller; must stay in sync with .github/workflows/docker.yaml).
+  image:
+    repository: ghcr.io/opendefensecloud/quota-controller
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Secret containing a kubeconfig for connecting to the kcp quota-ctrl workspace.
+  # Required when the controller runs outside kcp (e.g. in a management/kind cluster).
+  kubeconfig:
+    secretName: ""
+    key: "kubeconfig"
+
+  serviceAccount:
+    create: true
+    name: quota-controller
+    annotations: {}
+
+  healthProbeBindAddress: ":8081"
+
+  # Leader election. Only one replica runs the accounting reconciler at a time.
+  # The lease lives in the target kcp workspace (where the controller connects),
+  # NOT the physical cluster the pod runs in. The pod's release namespace does
+  # not exist inside that logical cluster, so the lease defaults to "default",
+  # which every kcp workspace provides. Override only if you pre-create a
+  # dedicated namespace in the quota-ctrl workspace.
+  leaderElect: true
+  leaderElectionID: quota-controller.opendefense.cloud
+  leaderElectionNamespace: ""  # defaults to "default"
+
+  # Reservation TTL: how long an admission slot is held before the sweep can
+  # reclaim it if the object never appears as a live resource.
+  reservationTTL: 60s
+
+  # Resync interval for the accounting sweep. Must not exceed reservationTTL.
+  resyncInterval: 60s
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Webhook server configuration.
+webhook:
+  replicas: 2
+
+  # Image built from the Dockerfile's "webhook" target (CI publishes it as
+  # quota-webhook; must stay in sync with .github/workflows/docker.yaml).
+  image:
+    repository: ghcr.io/opendefensecloud/quota-webhook
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Port the TLS admission server listens on (inside the container).
+  port: 9443
+
+  # Directory mounted into the webhook container containing tls.crt and tls.key.
+  tlsCertDir: /etc/webhook-tls
+
+  # Secret containing a kubeconfig for connecting to the kcp quota-ctrl workspace.
+  kubeconfig:
+    secretName: ""
+    key: "kubeconfig"
+
+  serviceAccount:
+    create: true
+    name: quota-webhook
+    annotations: {}
+
+  service:
+    port: 443
+    # Set to NodePort and specify nodePort to expose the webhook outside the cluster.
+    type: ClusterIP
+    nodePort: ""
+
+  tls:
+    # Use an existing Secret containing tls.crt, tls.key, and ca.crt.
+    # When set, the self-signed Issuer and Certificate are not created.
+    existingSecret: ""
+
+    # Use cert-manager to issue a self-signed TLS certificate.
+    # cert-manager must be installed in the cluster.
+    certManager:
+      enabled: true
+      # Additional DNS names appended to the Certificate (the service FQDN is always included).
+      additionalDnsNames: []
+
+  healthProbeBindAddress: ":8081"
+
+  # Reservation TTL — must match controller.reservationTTL.
+  reservationTTL: 60s
+
+  # How long the webhook waits at startup for the quota-provider virtual
+  # workspace to become listable (Go duration, e.g. "10m" for slow kcp
+  # cold-starts). Empty uses the binary default (5m).
+  vwReadyTimeout: ""
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Per-provider RBAC: apply in each provider workspace to grant the accounting
+# reconciler read access to that provider's service APIExport content.
+# See templates/provider-rbac.yaml for details.
+providerRBAC:
+  enabled: false
+  # Name of the provider's service APIExport (e.g. "my-service").
+  serviceAPIExportName: ""
+  # Override the controller SA name if it differs from the chart default.
+  controllerServiceAccountName: ""
+  # Override the controller namespace if the quota-controller is in a different ns.
+  controllerNamespace: ""

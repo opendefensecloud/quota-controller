@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.webhook.service.type }}
+  ports:
+    - port: {{ .Values.webhook.service.port }}
+      targetPort: {{ .Values.webhook.port }}
+      protocol: TCP
+      name: https
+      {{- if and (eq .Values.webhook.service.type "NodePort") .Values.webhook.service.nodePort }}
+      nodePort: {{ .Values.webhook.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "quota-controller.webhook.selectorLabels" . | nindent 4 }}

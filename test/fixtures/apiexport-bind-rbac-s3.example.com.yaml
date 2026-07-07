@@ -1,0 +1,37 @@
+# Lets marketplace consumers BIND the s3.example.com APIExport — i.e. subscribe via the portal
+# "enable"/add button (UI-driven binding). kcp gates an APIBinding with the `bind` verb on the
+# target apiexport, evaluated in THIS provider workspace against the binding identity (kcp's
+# APIBinding admission "deep SAR"). Without this grant kcp denies the bind and "enable" fails —
+# so a marketplace tile alone is not enough; the APIExport must also be bindable.
+#
+# Subject: mirrors the arc provider (root:providers:odd) — grant to User `system:anonymous`
+# (the catch-all the portal bind can resolve to) AND the `system:authenticated` group (the
+# kubernetes-graphql-gateway forwards the authenticated user's token). Broad/demo-appropriate;
+# trim to the exact principal once confirmed.
+# NOTE: `kubectl auth can-i` does NOT reflect kcp's deep-SAR bind path — verify by actually
+# binding (clicking "enable" / creating the APIBinding as the user), not via a plain SAR.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: s3:apiexport:bind
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports"]
+    resourceNames: ["s3.example.com"]
+    verbs: ["bind"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: s3:apiexport:bind
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: s3:apiexport:bind
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: system:anonymous
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:authenticated

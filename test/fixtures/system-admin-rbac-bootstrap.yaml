@@ -1,0 +1,31 @@
+# RBAC for the quota-controller webhook in the system:admin workspace.
+# Applied during e2e setup using a system:masters identity over a direct
+# (port-forwarded) connection to the root shard.
+#
+# kcp's BootstrapPolicyAuthorizer reads RBAC from the local shard's
+# system:admin only — bindings do not propagate across shards — so this
+# fixture must be applied once per shard. Within a shard the binding
+# applies to every workspace, so the webhook can get/list governed
+# resources in any consumer workspace without per-workspace RBAC.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-webhook
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-webhook
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "system:serviceaccount:quota-system:quota-webhook"

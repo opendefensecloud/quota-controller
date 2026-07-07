@@ -1,0 +1,21 @@
+version: "3"
+
+# The dev-kit Make flow (Makefile + common.mk) is the canonical task runner.
+# These Task targets delegate to it so both entry points stay in sync.
+tasks:
+  test:
+    desc: Run unit + integration tests (envtest via setup-envtest)
+    cmds:
+      - make test
+  lint:
+    desc: Run linters (license headers + golangci-lint)
+    cmds:
+      - make lint
+  run:
+    desc: Run the controller locally (needs KUBECONFIG to a kcp quota-ctrl workspace)
+    cmds:
+      - make run-controller
+  generate:
+    desc: Regenerate deepcopy + CRDs
+    cmds:
+      - make generate manifests

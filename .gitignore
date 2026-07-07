@@ -16,4 +16,15 @@
 # Go build output
 /bin/
 /dist/
+/controller
 coverprofile
+
+# Development environment — dev-kit downloads/generates these per-machine
+common.mk
+.common.mk-checked
+.common.mk-version
+.common.mk-download
+/.pre-commit-config.yaml
+/.devenv/
+/result
+*.tgz

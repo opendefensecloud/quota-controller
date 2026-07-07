@@ -1,0 +1,30 @@
+# Values for e2e / integration testing — both components deployed in kind,
+# connecting to kcp via the front-proxy.
+image:
+  repository: quota-controller
+  tag: integration-test
+  pullPolicy: Never
+
+# kcpBaseHost is set dynamically via --set in the e2e test to match
+# the actual front-proxy URL from kcp-operator.
+
+controller:
+  kubeconfig:
+    secretName: kcp-controller-kubeconfig
+    key: kubeconfig
+  leaderElect: false
+
+webhook:
+  kubeconfig:
+    secretName: kcp-webhook-kubeconfig
+    key: kubeconfig
+
+  port: 9443
+
+  service:
+    type: ClusterIP
+    port: 443
+
+  tls:
+    certManager:
+      enabled: true

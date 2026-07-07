@@ -1,0 +1,12 @@
+apiVersion: quota.opendefense.cloud/v1alpha1
+kind: ConsumptionQuota
+metadata:
+  name: quota-s3-buckets
+spec:
+  governed:
+    apiExportName: s3.example.com
+    group: s3.example.com
+    version: v1
+    resource: buckets
+  by: Count
+  defaultLimit: 3

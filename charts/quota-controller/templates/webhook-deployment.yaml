@@ -1,0 +1,90 @@
+{{- if ne .Values.controller.reservationTTL .Values.webhook.reservationTTL }}
+{{- fail (printf "controller.reservationTTL (%s) and webhook.reservationTTL (%s) must be identical: the webhook writes reservations with its TTL and the controller sweeps them with its own" .Values.controller.reservationTTL .Values.webhook.reservationTTL) }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quota-controller.webhook.fullname" . }}
+  labels:
+    {{- include "quota-controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quota-controller.webhook.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quota-controller.webhook.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "quota-controller.webhook.serviceAccountName" . }}
+      containers:
+        - name: webhook
+          image: "{{ .Values.webhook.image.repository }}:{{ .Values.webhook.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
+          command:
+            - /quota-webhook
+          args:
+            - --api-export-name={{ .Values.apiExportName }}
+            - --webhook-port={{ .Values.webhook.port }}
+            - --tls-cert-dir={{ .Values.webhook.tlsCertDir }}
+            - --health-probe-bind-address={{ .Values.webhook.healthProbeBindAddress }}
+            - --reservation-ttl={{ .Values.webhook.reservationTTL }}
+            {{- if .Values.webhook.vwReadyTimeout }}
+            - --vw-ready-timeout={{ .Values.webhook.vwReadyTimeout }}
+            {{- end }}
+          {{- if .Values.webhook.kubeconfig.secretName }}
+          env:
+            - name: KUBECONFIG
+              value: /etc/kcp-kubeconfig/{{ .Values.webhook.kubeconfig.key }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.webhook.port }}
+              name: https
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+          volumeMounts:
+            - name: tls
+              mountPath: {{ .Values.webhook.tlsCertDir }}
+              readOnly: true
+            {{- if .Values.webhook.kubeconfig.secretName }}
+            - name: kcp-kubeconfig
+              mountPath: /etc/kcp-kubeconfig
+              readOnly: true
+            {{- end }}
+          {{- with .Values.webhook.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "quota-controller.webhook.tlsSecretName" . }}
+        {{- if .Values.webhook.kubeconfig.secretName }}
+        - name: kcp-kubeconfig
+          secret:
+            secretName: {{ .Values.webhook.kubeconfig.secretName }}
+        {{- end }}
+      {{- with .Values.webhook.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.webhook.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.webhook.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

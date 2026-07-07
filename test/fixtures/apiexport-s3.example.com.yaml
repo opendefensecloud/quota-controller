@@ -1,0 +1,16 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: s3.example.com
+  labels:
+    # Marketplace tile: the virtual-workspaces marketplace VW joins each ProviderMetadata to
+    # an apiexports?labelSelector=ui.platform-mesh.io/content-for=<providermetadata-name>.
+    # Value MUST equal the ProviderMetadata name (s3.example.com) or no tile is rendered.
+    ui.platform-mesh.io/content-for: s3.example.com
+spec:
+  resources:
+    - group: s3.example.com
+      name: buckets
+      schema: v1.buckets.s3.example.com
+      storage:
+        crd: {}
