@@ -1,5 +1,10 @@
 # quota-controller
 
+[![Build status](https://github.com/opendefensecloud/quota-controller/actions/workflows/golang.yaml/badge.svg)](https://github.com/opendefensecloud/quota-controller/actions/workflows/golang.yaml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/opendefensecloud/quota-controller/badge)](https://scorecard.dev/viewer/?uri=github.com/opendefensecloud/quota-controller)
+[![GitHub Release](https://img.shields.io/github/v/release/opendefensecloud/quota-controller)](https://github.com/opendefensecloud/quota-controller/releases/latest)
+
+
 A kcp-aware admission-webhook controller that enforces consumption-based quotas across kcp
 workspaces. It intercepts resource creation and updates via a ValidatingWebhookConfiguration,
 checks current usage against workspace-scoped quota policies, and denies requests that would
