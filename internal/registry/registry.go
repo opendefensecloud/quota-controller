@@ -33,7 +33,8 @@ func (r *Registry) Delete(ref ResourceRef) {
 }
 
 // LimitFor returns the effective limit for a consumer. Phase 1: the default only.
-// Phase 2 will consult per-consumer grants here (cluster is already in the signature).
+// TODO(phase2): consult per-consumer grants here before the default (cluster is
+// already in the signature); see the spec's Phase 2 self-service section (ADR planned).
 func (r *Registry) LimitFor(_ string, ref ResourceRef) (int32, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -21,8 +21,8 @@ spec:
       serviceAccountName: {{ include "quota-controller.serviceAccountName" . }}
       containers:
         - name: controller
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
           command:
             - /quota-controller
           args:

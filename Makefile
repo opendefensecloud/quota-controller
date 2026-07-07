@@ -8,7 +8,7 @@ common.mk:
 DOCKER ?= docker
 ENVTEST_K8S_VERSION ?= 1.31.0
 
-IMG_REGISTRY ?= ghcr.io/opendefense-gl
+IMG_REGISTRY ?= ghcr.io/opendefensecloud
 IMG_TAG ?= latest
 CONTROLLER_IMG ?= $(IMG_REGISTRY)/quota-controller:$(IMG_TAG)
 WEBHOOK_IMG ?= $(IMG_REGISTRY)/quota-webhook:$(IMG_TAG)

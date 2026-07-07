@@ -57,6 +57,15 @@ type accountingManager struct {
 	resync  time.Duration
 	log     logr.Logger
 
+	// startFn launches the sub-manager for one governed export and must
+	// register sets[key] before a successful return (as start does). It exists
+	// as a field so lifecycle tests can exercise Ensure/Remove/retryStart
+	// without standing up a real multicluster manager.
+	startFn func(ctx context.Context, providerCluster string, g governed, key string) (*accountingSet, error)
+	// retryBackoff paces retryStart's relaunch attempts after an unexpected
+	// self-stop; tests shrink it.
+	retryBackoff wait.Backoff
+
 	mu       sync.Mutex
 	sets     map[string]*accountingSet // key -> running set
 	refs     map[string]sets.Set[string]
@@ -69,17 +78,29 @@ type accountingSet struct {
 }
 
 func newAccountingManager(rootCtx context.Context, baseCfg *rest.Config, scheme *runtime.Scheme, store *quota.Store, resync time.Duration, log logr.Logger) *accountingManager {
-	return &accountingManager{
-		rootCtx:  rootCtx,
-		baseCfg:  baseCfg,
-		scheme:   scheme,
-		store:    store,
-		resync:   resync,
-		log:      log,
+	a := &accountingManager{
+		rootCtx: rootCtx,
+		baseCfg: baseCfg,
+		scheme:  scheme,
+		store:   store,
+		resync:  resync,
+		log:     log,
+		// Capped exponential backoff (5 s → 10 s → … → 2 m) for relaunching a
+		// self-stopped set. Steps is effectively unbounded; Duration is capped
+		// at 2 m after a few doublings.
+		retryBackoff: wait.Backoff{
+			Duration: 5 * time.Second,
+			Factor:   2.0,
+			Cap:      2 * time.Minute,
+			Steps:    1000,
+		},
 		sets:     map[string]*accountingSet{},
 		refs:     map[string]sets.Set[string]{},
 		starting: sets.New[string](),
 	}
+	a.startFn = a.start
+
+	return a
 }
 
 // accountingKey uniquely identifies one accounting informer set.
@@ -116,7 +137,7 @@ func (a *accountingManager) Ensure(ctx context.Context, providerCluster string, 
 	a.starting.Insert(key)
 	a.mu.Unlock()
 
-	_, err := a.start(ctx, providerCluster, governed{group, version, resource, id, apiExportName}, key)
+	_, err := a.startFn(ctx, providerCluster, governed{group, version, resource, id, apiExportName}, key)
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -265,7 +286,7 @@ func (a *accountingManager) start(ctx context.Context, providerCluster string, g
 			}
 			keys := make([]string, 0, len(list.Items))
 			for i := range list.Items {
-				keys = append(keys, list.Items[i].GetNamespace()+"/"+list.Items[i].GetName())
+				keys = append(keys, quota.ObjectKey(list.Items[i].GetNamespace(), list.Items[i].GetName()))
 			}
 
 			return keys, nil
@@ -364,17 +385,12 @@ func (a *accountingManager) start(ctx context.Context, providerCluster string, g
 }
 
 // retryStart re-launches the accounting sub-manager for key after an unexpected
-// self-stop, using a capped exponential backoff (5 s → 10 s → … → 2 m). It
-// exits once the sub-manager is successfully restarted, refs[key] drops to 0,
-// or the root context is done. The same a.mu + starting in-flight guard used by
-// Ensure prevents concurrent CQ reconciles from double-starting the same key.
+// self-stop, paced by a.retryBackoff. It exits once the sub-manager is
+// successfully restarted, refs[key] drops to 0, or the root context is done.
+// The same a.mu + starting in-flight guard used by Ensure prevents concurrent
+// CQ reconciles from double-starting the same key.
 func (a *accountingManager) retryStart(g governed, key, providerCluster string) {
-	backoff := wait.Backoff{
-		Duration: 5 * time.Second,
-		Factor:   2.0,
-		Cap:      2 * time.Minute,
-		Steps:    1000, // effectively unbounded; Duration is capped at 2 m after a few doublings
-	}
+	backoff := a.retryBackoff
 
 	for {
 		delay := backoff.Step()
@@ -400,7 +416,7 @@ func (a *accountingManager) retryStart(g governed, key, providerCluster string) 
 		a.starting.Insert(key)
 		a.mu.Unlock()
 
-		_, err := a.start(a.rootCtx, providerCluster, g, key)
+		_, err := a.startFn(a.rootCtx, providerCluster, g, key)
 
 		a.mu.Lock()
 		a.starting.Delete(key)

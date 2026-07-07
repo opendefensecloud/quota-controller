@@ -57,6 +57,9 @@ spec:
           - identityHash
           - resource
           type: object
+          x-kubernetes-validations:
+          - message: spec is immutable
+            rule: self == oldSelf
         status:
           properties:
             confirmed:
@@ -77,7 +80,11 @@ spec:
                     format: date-time
                     type: string
                   key:
-                    description: Key is the reserved object's namespace/name.
+                    description: |-
+                      Key identifies the reserved object: "namespace/name" for namespaced
+                      objects, the bare "name" for cluster-scoped ones (quota.ObjectKey), or
+                      "uid:<request UID>" for generateName requests whose final name is not
+                      known at admission time.
                     type: string
                 required:
                 - expiresAt

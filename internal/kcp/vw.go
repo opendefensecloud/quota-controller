@@ -13,17 +13,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// VirtualWorkspaceURL returns the first virtual-workspace URL advertised by the
-// APIExportEndpointSlice whose spec.export.name matches apiExportName.
+// VirtualWorkspaceURLs returns every virtual-workspace URL advertised by the
+// APIExportEndpointSlice whose spec.export.name matches apiExportName,
+// deduplicated. On a multi-shard kcp there is one endpoint per shard; callers
+// that list through the VW must query every URL or they only see the objects
+// of a single shard.
 //
 // Adapted from dependency-controller/internal/kcp/endpointslice.go: instead of
 // returning the full slice, we walk the status endpoints and hand back the URL
-// string directly. The field layout (Spec.APIExport.Name, Status.APIExportEndpoints[].URL)
+// strings directly. The field layout (Spec.APIExport.Name, Status.APIExportEndpoints[].URL)
 // is identical in kcp SDK v0.32.x.
-func VirtualWorkspaceURL(ctx context.Context, c client.Client, apiExportName string) (string, error) {
+func VirtualWorkspaceURLs(ctx context.Context, c client.Client, apiExportName string) ([]string, error) {
 	var list apisv1alpha1.APIExportEndpointSliceList
 	if err := c.List(ctx, &list); err != nil {
-		return "", fmt.Errorf("listing APIExportEndpointSlices: %w", err)
+		return nil, fmt.Errorf("listing APIExportEndpointSlices: %w", err)
 	}
 
 	for i := range list.Items {
@@ -32,13 +35,35 @@ func VirtualWorkspaceURL(ctx context.Context, c client.Client, apiExportName str
 		}
 		eps := list.Items[i].Status.APIExportEndpoints
 		if len(eps) == 0 {
-			return "", fmt.Errorf("APIExportEndpointSlice for %q has no endpoints yet", apiExportName)
+			return nil, fmt.Errorf("APIExportEndpointSlice for %q has no endpoints yet", apiExportName)
 		}
 
-		return eps[0].URL, nil
+		urls := make([]string, 0, len(eps))
+		seen := make(map[string]struct{}, len(eps))
+		for _, ep := range eps {
+			if _, ok := seen[ep.URL]; ok {
+				continue
+			}
+			seen[ep.URL] = struct{}{}
+			urls = append(urls, ep.URL)
+		}
+
+		return urls, nil
 	}
 
-	return "", fmt.Errorf("no APIExportEndpointSlice found for APIExport %q", apiExportName)
+	return nil, fmt.Errorf("no APIExportEndpointSlice found for APIExport %q", apiExportName)
+}
+
+// VirtualWorkspaceURL returns the first virtual-workspace URL advertised for
+// apiExportName. Suitable as a readiness probe for the VW; use
+// VirtualWorkspaceURLs when the caller must reach every shard.
+func VirtualWorkspaceURL(ctx context.Context, c client.Client, apiExportName string) (string, error) {
+	urls, err := VirtualWorkspaceURLs(ctx, c, apiExportName)
+	if err != nil {
+		return "", err
+	}
+
+	return urls[0], nil
 }
 
 // EndpointSliceName returns the name of the APIExportEndpointSlice whose

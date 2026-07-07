@@ -26,14 +26,16 @@ import (
 )
 
 const (
-	// vwReadyTimeout bounds how long PopulateRegistry waits for the quota-provider
-	// APIExport's virtual workspace to become listable. kcp populates the backing
-	// APIExportEndpointSlice asynchronously after startup, so a transient "no
-	// endpoints yet" must be retried rather than crash-looping the process. The
-	// window is generous enough to absorb normal startup races while still
-	// surfacing a genuine misconfiguration as a terminal error.
-	vwReadyTimeout  = 5 * time.Minute
-	vwReadyInterval = 3 * time.Second
+	// defaultVWReadyTimeout is the default bound on how long PopulateRegistry
+	// waits for the quota-provider APIExport's virtual workspace to become
+	// listable (overridable via --vw-ready-timeout for slow kcp cold-starts).
+	// kcp populates the backing APIExportEndpointSlice asynchronously after
+	// startup, so a transient "no endpoints yet" must be retried rather than
+	// crash-looping the process. The window is generous enough to absorb normal
+	// startup races while still surfacing a genuine misconfiguration as a
+	// terminal error.
+	defaultVWReadyTimeout = 5 * time.Minute
+	vwReadyInterval       = 3 * time.Second
 )
 
 // registryWatcher keeps the webhook's limit registry in sync with the
@@ -45,6 +47,9 @@ type registryWatcher struct {
 	scheme        *runtime.Scheme
 	apiExportName string
 	reg           *registry.Registry
+	// vwReadyTimeout bounds PopulateRegistry's wait for a listable virtual
+	// workspace; zero means defaultVWReadyTimeout.
+	vwReadyTimeout time.Duration
 
 	mu    sync.Mutex
 	known map[string]registry.ResourceRef // cqRef (cluster/name) -> registry entry
@@ -131,11 +136,16 @@ func (w *registryWatcher) PopulateRegistry(ctx context.Context) error {
 		lastErr error
 	)
 
+	timeout := w.vwReadyTimeout
+	if timeout <= 0 {
+		timeout = defaultVWReadyTimeout
+	}
+
 	// The virtual workspace (and the APIBinding it serves) come up asynchronously
 	// after the manager starts. Poll until the initial list succeeds rather than
 	// failing the runnable, which would crash-loop the process on a startup-timing
 	// transient. The readyz gate keeps the webhook fail-closed throughout the wait.
-	waitErr := wait.PollUntilContextTimeout(ctx, vwReadyInterval, vwReadyTimeout, true, func(ctx context.Context) (bool, error) {
+	waitErr := wait.PollUntilContextTimeout(ctx, vwReadyInterval, timeout, true, func(ctx context.Context) (bool, error) {
 		vwClients, err := w.virtualWorkspaceClients(ctx)
 		if err != nil {
 			lastErr = err
@@ -184,9 +194,11 @@ func (w *registryWatcher) PopulateRegistry(ctx context.Context) error {
 	return nil
 }
 
-// virtualWorkspaceClients returns one client per kcp shard, each pointing at
-// {vwURL}/clusters/* so it can list ConsumptionQuotas across every provider
-// workspace bound to the quota-provider APIExport on that shard.
+// virtualWorkspaceClients returns one client per advertised virtual-workspace
+// endpoint (one per kcp shard), each pointing at {vwURL}/clusters/* so it can
+// list ConsumptionQuotas across every provider workspace bound to the
+// quota-provider APIExport on that shard. Listing only one endpoint would seed
+// the registry with a single shard's quotas on a multi-shard kcp.
 func (w *registryWatcher) virtualWorkspaceClients(ctx context.Context) ([]client.Client, error) {
 	localCfg := w.mgr.GetLocalManager().GetConfig()
 
@@ -195,20 +207,24 @@ func (w *registryWatcher) virtualWorkspaceClients(ctx context.Context) ([]client
 		return nil, fmt.Errorf("creating direct client: %w", err)
 	}
 
-	url, err := kcp.VirtualWorkspaceURL(ctx, directClient, w.apiExportName)
+	urls, err := kcp.VirtualWorkspaceURLs(ctx, directClient, w.apiExportName)
 	if err != nil {
-		return nil, fmt.Errorf("resolving virtual workspace URL for %s: %w", w.apiExportName, err)
+		return nil, fmt.Errorf("resolving virtual workspace URLs for %s: %w", w.apiExportName, err)
 	}
 
-	vwCfg := rest.CopyConfig(localCfg)
-	vwCfg.Host = url + "/clusters/*"
+	clients := make([]client.Client, 0, len(urls))
+	for _, url := range urls {
+		vwCfg := rest.CopyConfig(localCfg)
+		vwCfg.Host = url + "/clusters/*"
 
-	vwClient, err := client.New(vwCfg, client.Options{Scheme: w.scheme})
-	if err != nil {
-		return nil, fmt.Errorf("creating VW client for %s: %w", url, err)
+		vwClient, err := client.New(vwCfg, client.Options{Scheme: w.scheme})
+		if err != nil {
+			return nil, fmt.Errorf("creating VW client for %s: %w", url, err)
+		}
+		clients = append(clients, vwClient)
 	}
 
-	return []client.Client{vwClient}, nil
+	return clients, nil
 }
 
 // readyzCheck reports healthy once the given channel is closed (i.e. the initial

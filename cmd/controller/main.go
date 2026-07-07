@@ -41,6 +41,11 @@ import (
 	"go.opendefense.cloud/quota-controller/internal/registry"
 )
 
+// startupRequestTimeout bounds one-shot network calls made during startup,
+// before the manager (and its health endpoints) is running. Without it an
+// unreachable kcp leaves the process hanging not-ready indefinitely.
+const startupRequestTimeout = 30 * time.Second
+
 var scheme = runtime.NewScheme()
 
 func init() {
@@ -81,15 +86,22 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
 
-	// Warn if the sweep interval exceeds the reservation TTL. The sweep that
-	// refreshes confirmed counts should complete within the reservation window;
-	// a longer resync means confirmed can stay stale past the TTL, which risks
-	// over-allowing past the reservation guarantee (spec §7.4).
+	// Refuse to run when the sweep interval exceeds the reservation TTL. The
+	// sweep that refreshes confirmed counts must complete within the reservation
+	// window; a longer resync means confirmed can stay stale past the TTL, which
+	// risks over-allowing past the reservation guarantee (spec §7.4, R1 strict).
 	if resyncInterval > reservationTTL {
-		setupLog.Info("WARNING: --resync-interval exceeds --reservation-ttl; "+
-			"confirmed refresh may not occur within the reservation window — risk of staleness",
+		setupLog.Error(nil, "--resync-interval must not exceed --reservation-ttl: "+
+			"a stale confirmed count past the reservation window can over-allow (spec §7.4)",
 			"resyncInterval", resyncInterval, "reservationTTL", reservationTTL)
+		os.Exit(1)
 	}
+
+	// Installed before any network I/O: rootCtx drives the whole process, the
+	// accounting sub-managers derive their lifetime from it, and startup calls
+	// below bound themselves on it so an unreachable kcp fails the pod fast
+	// instead of hanging it not-ready forever (stalling rollouts).
+	rootCtx := ctrl.SetupSignalHandler()
 
 	cfg := ctrl.GetConfigOrDie()
 
@@ -115,7 +127,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	sliceName, err := kcp.EndpointSliceName(context.Background(), directClient, apiExportName)
+	sliceCtx, sliceCancel := context.WithTimeout(rootCtx, startupRequestTimeout)
+	sliceName, err := kcp.EndpointSliceName(sliceCtx, directClient, apiExportName)
+	sliceCancel()
 	if err != nil {
 		setupLog.Error(err, "unable to find APIExportEndpointSlice", "apiExport", apiExportName)
 		os.Exit(1)
@@ -168,10 +182,6 @@ func main() {
 	// One shared Store over the quota-ctrl workspace for all QuotaUsage ledgers.
 	store := &quota.Store{Client: directClient, TTL: reservationTTL, Now: time.Now}
 
-	// rootCtx drives the whole process; the accounting sub-managers derive their
-	// lifetime from it (and die with the process on leader loss).
-	rootCtx := ctrl.SetupSignalHandler()
-
 	acct := newAccountingManager(rootCtx, baseCfg, scheme, store, resyncInterval, ctrl.Log.WithName("accounting"))
 
 	// Multicluster ConsumptionQuota reconciler. Because the VWC is installed in
@@ -208,7 +218,12 @@ func main() {
 			return res, err
 		}
 
-		// Drive the accounting informer lifecycle from the same event.
+		// Drive the accounting informer lifecycle from the same event. The re-Get
+		// deliberately observes the object AFTER Reconcile's finalizer/status
+		// writes: NotFound can only be seen once Reconcile has removed the
+		// finalizer (webhook teardown done), so acct.Remove never races a webhook
+		// that is still installed, and a stamped identityHash is guaranteed
+		// current because Reconcile wrote it before returning.
 		cq := &v1alpha1.ConsumptionQuota{}
 		if gErr := pcClient.Get(ctx, req.NamespacedName, cq); gErr != nil {
 			if apierrors.IsNotFound(gErr) {

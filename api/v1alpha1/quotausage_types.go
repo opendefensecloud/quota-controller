@@ -14,8 +14,9 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 type QuotaUsage struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              QuotaUsageSpec   `json:"spec"`
-	Status            QuotaUsageStatus `json:"status,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
+	Spec   QuotaUsageSpec   `json:"spec"`
+	Status QuotaUsageStatus `json:"status,omitempty"`
 }
 
 // QuotaUsageSpec records the identity this ledger belongs to (for humans/debugging;
@@ -38,7 +39,10 @@ type QuotaUsageStatus struct {
 
 // Reservation is an in-flight admit slot with a TTL.
 type Reservation struct {
-	// Key is the reserved object's namespace/name.
+	// Key identifies the reserved object: "namespace/name" for namespaced
+	// objects, the bare "name" for cluster-scoped ones (quota.ObjectKey), or
+	// "uid:<request UID>" for generateName requests whose final name is not
+	// known at admission time.
 	Key string `json:"key"`
 	// ExpiresAt is when the sweep may reclaim this reservation if unfulfilled.
 	ExpiresAt metav1.Time `json:"expiresAt"`

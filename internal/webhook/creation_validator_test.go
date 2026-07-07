@@ -168,6 +168,22 @@ var _ = Describe("CreationValidator", func() {
 			Expect(keys[0]).NotTo(Equal(keys[1]))
 		})
 
+		It("keys a cluster-scoped (namespaceless) request on <name> without a leading slash", func() {
+			var capturedKey string
+			v := &whook.CreationValidator{Reg: reg, Store: &quota.Store{TTL: time.Minute}}
+			v.SetResource(ref)
+			v.ReserveFn = func(_ context.Context, _, key string, _ int32) (bool, error) {
+				capturedKey = key
+				return true, nil
+			}
+
+			resp := v.Handle(context.Background(),
+				createReq("root:c1", "s3.example.com", "buckets", "", "global-bucket"))
+
+			Expect(resp.Allowed).To(BeTrue())
+			Expect(capturedKey).To(Equal("global-bucket"))
+		})
+
 		It("keys a named request on <namespace>/<name>", func() {
 			var capturedKey string
 			v := &whook.CreationValidator{Reg: reg, Store: &quota.Store{TTL: time.Minute}}

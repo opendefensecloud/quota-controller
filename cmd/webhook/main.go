@@ -37,6 +37,11 @@ import (
 	"go.opendefense.cloud/quota-controller/internal/registry"
 )
 
+// startupRequestTimeout bounds one-shot network calls made during startup,
+// before the manager (and its health endpoints) is running. Without it an
+// unreachable kcp leaves the process hanging not-ready indefinitely.
+const startupRequestTimeout = 30 * time.Second
+
 var scheme = runtime.NewScheme()
 
 func init() {
@@ -55,12 +60,14 @@ func main() {
 		tlsCertDir             string
 		healthProbeBindAddress string
 		reservationTTL         time.Duration
+		vwReadyTimeout         time.Duration
 	)
 	flag.StringVar(&apiExportName, "api-export-name", "quota-provider", "Name of the quota-provider APIExport (watched via its virtual workspace)")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "Port the admission webhook server binds to")
 	flag.StringVar(&tlsCertDir, "tls-cert-dir", "/etc/webhook-tls", "Directory containing tls.crt and tls.key for the admission server")
 	flag.StringVar(&healthProbeBindAddress, "health-probe-bind-address", ":8081", "Address to bind the health probe endpoint")
 	flag.DurationVar(&reservationTTL, "reservation-ttl", 60*time.Second, "TTL for admission reservations (spec §7.4)")
+	flag.DurationVar(&vwReadyTimeout, "vw-ready-timeout", defaultVWReadyTimeout, "How long to wait at startup for the quota-provider virtual workspace to become listable before failing (readyz stays unready while waiting)")
 
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
@@ -68,6 +75,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
+
+	// Installed before any network I/O so startup calls can bound themselves on
+	// it: an unreachable kcp must fail the pod fast instead of hanging it
+	// not-ready indefinitely (stalling webhook rolling restarts).
+	rootCtx := ctrl.SetupSignalHandler()
 
 	cfg := ctrl.GetConfigOrDie()
 
@@ -84,7 +96,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	sliceName, err := kcp.EndpointSliceName(context.Background(), directClient, apiExportName)
+	sliceCtx, sliceCancel := context.WithTimeout(rootCtx, startupRequestTimeout)
+	sliceName, err := kcp.EndpointSliceName(sliceCtx, directClient, apiExportName)
+	sliceCancel()
 	if err != nil {
 		setupLog.Error(err, "unable to find APIExportEndpointSlice", "apiExport", apiExportName)
 		os.Exit(1)
@@ -120,11 +134,12 @@ func main() {
 
 	// Light watcher that mirrors ConsumptionQuota limits into the registry.
 	watcher := &registryWatcher{
-		mgr:           mgr,
-		scheme:        scheme,
-		apiExportName: apiExportName,
-		reg:           reg,
-		known:         map[string]registry.ResourceRef{},
+		mgr:            mgr,
+		scheme:         scheme,
+		apiExportName:  apiExportName,
+		reg:            reg,
+		vwReadyTimeout: vwReadyTimeout,
+		known:          map[string]registry.ResourceRef{},
 	}
 
 	if err := mcbuilder.ControllerManagedBy(mgr).
@@ -170,7 +185,7 @@ func main() {
 
 	setupLog.Info("starting webhook server")
 
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(rootCtx); err != nil {
 		setupLog.Error(err, "webhook server failed")
 		os.Exit(1)
 	}

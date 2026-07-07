@@ -84,6 +84,12 @@ var _ = Describe("WebhookInstaller", func() {
 			Expect(wh.Rules[0].APIGroups).To(ConsistOf("s3.example.com"))
 			Expect(wh.Rules[0].Resources).To(ConsistOf("buckets"))
 
+			// Every served version must be matched: the handler is version-agnostic
+			// (the registry keys on group/resource/identity), and matching only the
+			// CQ's declared version would let CREATEs via another served version
+			// bypass the quota entirely.
+			Expect(wh.Rules[0].APIVersions).To(ConsistOf("*"))
+
 			// ClientConfig URL encodes the identity.
 			Expect(wh.ClientConfig.URL).NotTo(BeNil())
 			Expect(*wh.ClientConfig.URL).To(HaveSuffix("/validate/s3.example.com/buckets/" + testIdentityHash))
@@ -248,6 +254,40 @@ var _ = Describe("WebhookInstaller", func() {
 				resources = append(resources, wh.Rules[0].Resources[0])
 			}
 			Expect(resources).To(ConsistOf("buckets", "queues"))
+		})
+	})
+
+	Describe("entry name DNS limits", func() {
+		It("installs successfully for a long resource name with a full sha256 identity hash", func() {
+			// 33-char plural + 64-char (sha256 hex) identity: untruncated this
+			// yields a >63-char first DNS label, which the apiserver rejects.
+			longResource := "validatingadmissionpolicybindings"
+			fullSHA := strings.Repeat("ab12", 16)
+
+			cq := testCQ("quota-long-resource", "s3.example.com", "v1", longResource, fullSHA)
+
+			installer := controller.NewWebhookInstaller(k8sClient, "https://webhook.example.com", nil)
+			Expect(installer.Reconcile(ctx, cq)).To(Succeed())
+
+			vwc := &registrationv1.ValidatingWebhookConfiguration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "consumption-quota"}, vwc)).To(Succeed())
+			Expect(vwc.Webhooks).To(HaveLen(1))
+			for label := range strings.SplitSeq(vwc.Webhooks[0].Name, ".") {
+				Expect(len(label)).To(BeNumerically("<=", 63))
+			}
+		})
+
+		It("keeps entry names unchanged for typical resource names", func() {
+			// Regression guard: truncation must not alter names that already fit,
+			// or an upgrade would orphan existing VWC entries.
+			cq := testCQ("quota-s3-buckets", "s3.example.com", "v1", "buckets", testIdentityHash)
+
+			installer := controller.NewWebhookInstaller(k8sClient, "https://webhook.example.com", nil)
+			Expect(installer.Reconcile(ctx, cq)).To(Succeed())
+
+			vwc := &registrationv1.ValidatingWebhookConfiguration{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "consumption-quota"}, vwc)).To(Succeed())
+			Expect(vwc.Webhooks[0].Name).To(Equal("buckets-" + testIdentityHash + ".quota.opendefense.cloud"))
 		})
 	})
 

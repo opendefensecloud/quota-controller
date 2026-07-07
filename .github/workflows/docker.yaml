@@ -25,9 +25,9 @@ jobs:
     strategy:
       matrix:
         image:
-          - name: dependency-controller
+          - name: quota-controller
             target: controller
-          - name: dependency-webhook
+          - name: quota-webhook
             target: webhook
     permissions:
       contents: read

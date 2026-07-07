@@ -51,6 +51,12 @@ func (s *Store) Reserve(ctx context.Context, key identity.UsageKey, objKey strin
 func (s *Store) Apply(ctx context.Context, key identity.UsageKey, mutate func(v1alpha1.QuotaUsageStatus) v1alpha1.QuotaUsageStatus) error {
 	name := key.ObjectName()
 
+	// Tuned against the webhook's 10 s admission timeout (buildWebhookEntry):
+	// ~0.6 s of exponential ramp-up plus ~20 capped steps gives a total sleep
+	// budget of roughly 5-7 s, so CAS contention keeps retrying for most of the
+	// admission window yet still returns a fail-closed error before the
+	// apiserver gives up on the request. A larger Cap would mean fewer retries
+	// inside that window; more Steps would sleep past it to no effect.
 	backoff := wait.Backoff{
 		Duration: 5 * time.Millisecond,
 		Factor:   1.5,

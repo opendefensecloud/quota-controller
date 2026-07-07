@@ -198,8 +198,12 @@ func (w *WebhookInstaller) buildWebhookEntry(key webhookRuleKey) registrationv1.
 		Rules: []registrationv1.RuleWithOperations{{
 			Operations: []registrationv1.OperationType{registrationv1.Create},
 			Rule: registrationv1.Rule{
-				APIGroups:   []string{key.Group},
-				APIVersions: []string{key.Version},
+				APIGroups: []string{key.Group},
+				// All served versions: the validator is version-agnostic (registry
+				// keys on group/resource/identity), and matching only the CQ's
+				// declared version would let CREATEs via another served version
+				// bypass the quota.
+				APIVersions: []string{"*"},
 				Resources:   []string{key.Resource},
 			},
 		}},
@@ -214,13 +218,18 @@ func (w *WebhookInstaller) webhookURL(key webhookRuleKey) string {
 }
 
 // webhookEntryName returns a valid qualified DNS name for a ValidatingWebhook
-// entry, unique per (resource, identityHash). The identity hash is truncated to
-// 32 characters (enough for uniqueness) to stay within DNS label length limits.
+// entry, unique per (resource, identityHash). The first label must stay within
+// the 63-char DNS label limit: the identity hash is truncated to 32 characters
+// (enough for uniqueness) and the resource plural to 30, so 30 + "-" + 32 = 63.
 func webhookEntryName(key webhookRuleKey) string {
 	id := key.IdentityHash
 	if len(id) > 32 {
 		id = id[:32]
 	}
+	resource := key.Resource
+	if len(resource) > 30 {
+		resource = resource[:30]
+	}
 
-	return fmt.Sprintf("%s-%s.quota.opendefense.cloud", key.Resource, id)
+	return fmt.Sprintf("%s-%s.quota.opendefense.cloud", resource, id)
 }

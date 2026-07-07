@@ -67,7 +67,7 @@ func (v *CreationValidator) Handle(ctx context.Context, req admission.Request) a
 			fmt.Errorf("consumption quota policy for %s.%s not yet synced; denying (fail-closed)", v.ref.Resource, v.ref.Group))
 	}
 
-	objKey := req.Namespace + "/" + req.Name
+	objKey := quota.ObjectKey(req.Namespace, req.Name)
 	if req.Name == "" {
 		// generateName: the apiserver assigns the name AFTER admission, so key on the
 		// per-request UID. This never over-allows (each in-flight create gets a distinct

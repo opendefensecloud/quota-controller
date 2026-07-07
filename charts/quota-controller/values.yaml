@@ -1,8 +1,3 @@
-image:
-  repository: ghcr.io/opendefense-gl/quota-controller
-  tag: ""
-  pullPolicy: IfNotPresent
-
 imagePullSecrets: []
 
 # Name of the quota-provider APIExport (must match the APIExport applied to the kcp workspace).
@@ -16,6 +11,13 @@ kcp:
 # Controller configuration.
 controller:
   replicas: 1
+
+  # Image built from the Dockerfile's "controller" target (CI publishes it as
+  # quota-controller; must stay in sync with .github/workflows/docker.yaml).
+  image:
+    repository: ghcr.io/opendefensecloud/quota-controller
+    tag: ""
+    pullPolicy: IfNotPresent
 
   # Secret containing a kubeconfig for connecting to the kcp quota-ctrl workspace.
   # Required when the controller runs outside kcp (e.g. in a management/kind cluster).
@@ -63,6 +65,13 @@ controller:
 webhook:
   replicas: 2
 
+  # Image built from the Dockerfile's "webhook" target (CI publishes it as
+  # quota-webhook; must stay in sync with .github/workflows/docker.yaml).
+  image:
+    repository: ghcr.io/opendefensecloud/quota-webhook
+    tag: ""
+    pullPolicy: IfNotPresent
+
   # Port the TLS admission server listens on (inside the container).
   port: 9443
 
@@ -101,6 +110,11 @@ webhook:
 
   # Reservation TTL — must match controller.reservationTTL.
   reservationTTL: 60s
+
+  # How long the webhook waits at startup for the quota-provider virtual
+  # workspace to become listable (Go duration, e.g. "10m" for slow kcp
+  # cold-starts). Empty uses the binary default (5m).
+  vwReadyTimeout: ""
 
   resources:
     limits:
