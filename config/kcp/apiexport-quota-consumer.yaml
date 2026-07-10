@@ -1,0 +1,33 @@
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIExport
+metadata:
+  name: quota-consumer
+spec:
+  # Consumers bind this export to see and request quota (QuotaClaim).
+  #
+  # maximalPermissionPolicy is the R10 workflow-integrity guard (spec §10,
+  # ADR-002): bound identities may UPDATE spec.requestedLimit on claims the
+  # controller pre-created and READ status — but cannot create or delete
+  # claims, and cannot write status. The controller writes via this export's
+  # VW and is not subject to the policy.
+  #
+  # AMENDMENT (1b Task-1 spike; see docs/superpowers/specs/2026-07-08-1b-spike-notes.md,
+  # Question 2): kcp v0.32.3 REJECTS `spec.maximalPermissionPolicy.local.rules`
+  # ("unknown field" strict-decoding error) — LocalAPIExportPolicy is an EMPTY
+  # marker struct on this kcp version, there is no inline-rules field. The
+  # verbs matrix below is instead expressed as ordinary RBAC objects living in
+  # THIS export's own workspace, bound to the `apis.kcp.io:binding:` -prefixed
+  # group kcp stamps onto every identity that binds this export. See
+  # mpp-quota-consumer-rbac.yaml for the ClusterRole/ClusterRoleBinding kcp
+  # actually evaluates (spike-verified: this policy is enforced ABOVE
+  # local/bootstrap RBAC, so a consumer-workspace cluster-admin still cannot
+  # exceed it).
+  maximalPermissionPolicy:
+    local: {}
+  resources:
+    - group: quota.opendefense.cloud
+      name: quotaclaims
+      schema: v260708-c436ba1.quotaclaims.quota.opendefense.cloud
+      storage:
+        crd: {}
+status: {}

@@ -1,0 +1,61 @@
+# maximalPermissionPolicy enforcement RBAC for the quota-consumer APIExport
+# (apiexport-quota-consumer.yaml).
+#
+# WHY this file exists (AMENDMENT from the 1b Task-1 spike — see
+# docs/superpowers/specs/2026-07-08-1b-spike-notes.md, Question 2): the
+# original plan modeled the consumer verbs ceiling as inline rules under
+# `spec.maximalPermissionPolicy.local.rules` on the APIExport itself. kcp
+# v0.32.3 rejects that shape — `LocalAPIExportPolicy` (the `local:` object) is
+# an EMPTY marker struct with no `rules` field. The APIExport therefore only
+# carries `maximalPermissionPolicy.local: {}`, which tells kcp "evaluate a
+# local RBAC ceiling for this export" — and the ceiling itself is these plain
+# Kubernetes RBAC objects, applied in the EXPORT's own workspace (alongside
+# the APIExport, i.e. wherever config/kcp/ is applied — root:cloud-api-system
+# per the design plan).
+#
+# MECHANISM: kcp authorizes a bound identity's request against this
+# ClusterRole when the request's user/group carries the
+# `apis.kcp.io:binding:<identity>` prefix kcp stamps on every principal that
+# reached the API through an APIBinding. Binding the subject to
+# `apis.kcp.io:binding:system:authenticated` (the prefixed form of the
+# built-in group every authenticated bound identity belongs to) therefore
+# covers every consumer, without per-consumer bindings. The spike confirmed
+# kcp evaluates this ceiling ABOVE local/bootstrap RBAC in the consumer's own
+# workspace — a consumer who is cluster-admin there still cannot exceed it;
+# only system:masters (the always-allow authorizer) bypasses it.
+#
+# VERBS MATRIX (spec §10, ADR-002 — this is the workflow-integrity invariant,
+# preserved verbatim from the original plan):
+#   - quotaclaims:          get, list, watch, update, patch   (NO create, NO delete —
+#                            claims are pre-created exclusively by the controller)
+#   - quotaclaims/status:   get, list, watch                  (read-only — consumers
+#                            can never forge the controller's decision)
+#
+# The controller itself writes claims (create + status) through the export's
+# virtual workspace, which the spike confirmed is NOT subject to this policy
+# (VW requests carry a system:kcp:admin-group warrant) — no matching
+# `apis.kcp.io:binding:<controller>` grant is required or present here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-consumer-mpp
+rules:
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotaclaims"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotaclaims/status"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-consumer-mpp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-consumer-mpp
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: "apis.kcp.io:binding:system:authenticated"
