@@ -4,6 +4,7 @@
 package controller_test
 
 import (
+	"context"
 	"testing"
 
 	apisv1alpha2 "github.com/kcp-dev/sdk/apis/apis/v1alpha2"
@@ -25,6 +26,11 @@ import (
 // The suite hard-requires a working envtest toolchain (KUBEBUILDER_ASSETS);
 // `task test` provisions it automatically via setup-envtest.
 var k8sClient client.Client
+
+// ctx is shared by specs that don't need per-test cancellation; existing
+// specs mostly declare their own context.Background() locally, but the
+// self-service integration specs (Task 7) reference a package-level ctx.
+var ctx = context.Background()
 
 var testEnv *envtest.Environment
 
