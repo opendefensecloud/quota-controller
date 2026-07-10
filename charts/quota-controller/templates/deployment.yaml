@@ -27,6 +27,7 @@ spec:
             - /quota-controller
           args:
             - --api-export-name={{ .Values.apiExportName }}
+            - --consumer-api-export-name={{ .Values.consumerAPIExportName }}
             - --webhook-base-url={{ include "quota-controller.webhook.baseURL" . }}
             - --webhook-ca-bundle-path=/etc/webhook-ca/ca.crt
             - --health-probe-bind-address={{ .Values.controller.healthProbeBindAddress }}

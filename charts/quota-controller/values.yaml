@@ -3,6 +3,9 @@ imagePullSecrets: []
 # Name of the quota-provider APIExport (must match the APIExport applied to the kcp workspace).
 apiExportName: quota-provider
 
+# Name of the quota-consumer APIExport (QuotaClaim self-service surface).
+consumerAPIExportName: quota-consumer
+
 # kcp workspace where the quota-controller is installed. Used for documentation;
 # the kubeconfig's current context must already point to this workspace.
 kcp:

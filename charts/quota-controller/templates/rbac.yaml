@@ -21,16 +21,21 @@ rules:
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexportendpointslices"]
     verbs: ["get", "list", "watch"]
-  # Read the quota-provider APIExport (identity resolution + endpoint listing).
+  # Read the quota-provider AND quota-consumer APIExports (identity resolution +
+  # endpoint listing). The controller serves QuotaClaims through the
+  # quota-consumer virtual workspace, so it needs the same by-name access there.
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexports"]
-    resourceNames: ["quota-provider"]
+    resourceNames: [{{ .Values.apiExportName | quote }}, {{ .Values.consumerAPIExportName | quote }}]
     verbs: ["get", "list", "watch"]
-  # Watch resources projected by the quota-provider virtual workspace.
+  # Create/update/delete resources projected by the quota-provider and
+  # quota-consumer virtual workspaces: the controller writes QuotaClaims and
+  # QuotaGrants (and their status) and deletes claims on unbind (GC). `delete`
+  # is required for that claim GC path.
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexports/content"]
-    resourceNames: ["quota-provider"]
-    verbs: ["get", "list", "watch"]
+    resourceNames: [{{ .Values.apiExportName | quote }}, {{ .Values.consumerAPIExportName | quote }}]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Workspace resolution: enumerate consumer workspace logical-cluster paths.
   - apiGroups: ["tenancy.kcp.io"]
     resources: ["workspaces"]
@@ -99,11 +104,11 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexports"]
-    resourceNames: ["quota-provider"]
+    resourceNames: [{{ .Values.apiExportName | quote }}]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexports/content"]
-    resourceNames: ["quota-provider"]
+    resourceNames: [{{ .Values.apiExportName | quote }}]
     verbs: ["get", "list", "watch"]
   # QuotaUsage ledgers (admission reservations).
   - apiGroups: ["quota.opendefense.cloud"]
