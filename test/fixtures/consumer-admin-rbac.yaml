@@ -1,0 +1,18 @@
+# Grants an adversarial consumer identity cluster-admin INSIDE its own consumer
+# workspace. This is what makes the maximalPermissionPolicy assertions
+# meaningful: with cluster-admin the local RBAC chain would allow create/delete/
+# status writes on QuotaClaim, so any denial that remains must come from the
+# quota-consumer export's MPP ceiling (spec §10, ADR-002), not from missing
+# local RBAC. Applied by the suite as kcp-admin in the consumer workspace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: consumer-admin
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: ${CONSUMER_ADMIN}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
