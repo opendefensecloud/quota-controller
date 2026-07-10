@@ -1,0 +1,106 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: quotaclaims.quota.opendefense.cloud
+spec:
+  group: quota.opendefense.cloud
+  names:
+    kind: QuotaClaim
+    listKind: QuotaClaimList
+    plural: quotaclaims
+    singular: quotaclaim
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          QuotaClaim is the consumer-facing request+view object (spec §6.3). The
+          controller pre-creates one per (consumer, governed resource); consumers may
+          ONLY update spec.requestedLimit (enforced by the quota-consumer export's
+          maximalPermissionPolicy, §10) and read status. Enforcement NEVER reads this
+          type (ADR-002) — it only triggers the provider-gated approval path.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              governed:
+                description: Governed is the identity tuple, stamped by the controller
+                  at pre-creation.
+                properties:
+                  group:
+                    minLength: 1
+                    type: string
+                  identityHash:
+                    minLength: 1
+                    type: string
+                  resource:
+                    minLength: 1
+                    type: string
+                required:
+                - group
+                - identityHash
+                - resource
+                type: object
+              requestedLimit:
+                description: |-
+                  RequestedLimit is the ONLY field consumers change. Omitted = no request,
+                  the claim just shows the current effective limit.
+                format: int32
+                minimum: 0
+                type: integer
+            required:
+            - governed
+            type: object
+          status:
+            properties:
+              effectiveLimit:
+                description: EffectiveLimit is what the webhook enforces right now
+                  (§9).
+                format: int32
+                type: integer
+              grantedLimit:
+                description: GrantedLimit is the approved override, if any.
+                format: int32
+                type: integer
+              lastTransitionTime:
+                format: date-time
+                type: string
+              phase:
+                description: ClaimPhase is the consumer-visible state of a request
+                  (spec §6.3).
+                enum:
+                - None
+                - Pending
+                - Approved
+                - Rejected
+                type: string
+              reason:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

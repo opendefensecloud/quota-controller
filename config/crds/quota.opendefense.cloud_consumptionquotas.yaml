@@ -41,8 +41,10 @@ spec:
           spec:
             properties:
               autoApproveCeiling:
-                description: AutoApproveCeiling is reserved for Phase 2 (self-service)
-                  and ignored in Phase 1.
+                description: |-
+                  AutoApproveCeiling: QuotaClaim requests at/below this value are granted
+                  automatically; above it (or when omitted) they become Pending for manual
+                  provider approval (spec §8).
                 format: int32
                 type: integer
               by:
