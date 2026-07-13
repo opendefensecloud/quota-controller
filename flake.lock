@@ -179,11 +179,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782921837,
-        "narHash": "sha256-FYEZbPLztbGR7oNY7TozlbWfP/iQJ199x4HEiml2/u8=",
+        "lastModified": 1783668331,
+        "narHash": "sha256-mMfzU9jvq9XQyyssR9w0Rki8/Ec4Ez+bLkFWc7BaGGg=",
         "owner": "purpleclay",
         "repo": "go-overlay",
-        "rev": "5d056b32d83f18d2549416f78a15c2bf7112ebae",
+        "rev": "423eed783363fa154fc7f0c049f7effa910d2440",
         "type": "github"
       },
       "original": {
@@ -219,11 +219,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1782723713,
-        "narHash": "sha256-oPXCU/SSUokcGaJREHibG1CBX3+s/W7orDWQOZDsEeQ=",
+        "lastModified": 1783522502,
+        "narHash": "sha256-iffAls3iaNTyJC2faYcUXSI+Gp02cDjYl+MygxKl2GI=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b5aa0fbd538984f6e3d201be0005b4463d8b09f8",
+        "rev": "0bb7ec54c8483066ec9d7720e780a5caa71f8612",
         "type": "github"
       },
       "original": {

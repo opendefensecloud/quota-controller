@@ -27,7 +27,7 @@
       {
         devShells.default = dev-kit.lib.mkShell {
           inherit system;
-          goVersion = "1.26.4";
+          goVersion = "1.26.5";
           # dev-kit already provides kind, kubectl, helm, jq, gnumake, yq. Add the
           # Go/Kubernetes toolchain this repo needs: language server, linter, the
           # Task runner, controller-gen, and setup-envtest (integration tests).
