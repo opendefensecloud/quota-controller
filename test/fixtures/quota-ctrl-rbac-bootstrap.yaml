@@ -5,6 +5,15 @@
 # 1. Discover the VW URL via APIExportEndpointSlice
 # 2. Access the quota-provider APIExport virtual workspace (apiexports/content)
 # 3. Read and write QuotaUsage and ConsumptionQuota objects
+#
+# The controller additionally serves QuotaClaims and QuotaGrants through the
+# quota-consumer APIExport's virtual workspace (self-service): it creates,
+# updates, and deletes (GC on unbind) claims and grants and their status
+# through both the quota-provider and quota-consumer content APIs. The
+# webhook never touches claims — it only mirrors ConsumptionQuota/QuotaGrant
+# limits into its in-memory registry — so it gets NO access to the
+# quota-consumer export's content. This mirrors the split enforced by the
+# chart's rbac.yaml for real deployments (charts/quota-controller/templates/rbac.yaml).
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -14,10 +23,12 @@ rules:
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexportendpointslices"]
     verbs: ["get", "list", "watch"]
+  # Controller: read/write both the quota-provider and quota-consumer export
+  # content (claims, grants, and their status; delete for claim GC on unbind).
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexports/content"]
-    resourceNames: ["quota-provider"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    resourceNames: ["quota-provider", "quota-consumer"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["quota.opendefense.cloud"]
     resources: ["quotausages", "quotausages/status", "consumptionquotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
@@ -34,6 +45,35 @@ subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: User
     name: "system:serviceaccount:quota-system:quota-controller"
+---
+# Webhook: quota-provider content only (read for the registry mirror, write
+# for QuotaUsage reservations). NO access to quota-consumer export content —
+# the webhook never reads or writes QuotaClaims.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-webhook-quotactrl
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotausages", "quotausages/status", "consumptionquotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-webhook-quotactrl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-webhook-quotactrl
+subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: User
     name: "system:serviceaccount:quota-system:quota-webhook"

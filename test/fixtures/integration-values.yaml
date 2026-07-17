@@ -1,20 +1,32 @@
 # Values for e2e / integration testing — both components deployed in kind,
 # connecting to kcp via the front-proxy.
-image:
-  repository: quota-controller
-  tag: integration-test
-  pullPolicy: Never
+#
+# The suite builds ONE combined image (quota-controller:integration-test, the
+# Dockerfile's default target with both binaries); the chart's Deployments
+# override command:, so both components run from it.
 
 # kcpBaseHost is set dynamically via --set in the e2e test to match
 # the actual front-proxy URL from kcp-operator.
 
 controller:
+  image:
+    repository: quota-controller
+    tag: integration-test
+    pullPolicy: Never
   kubeconfig:
     secretName: kcp-controller-kubeconfig
     key: kubeconfig
   leaderElect: false
+  # Tighten the accounting/claim-discovery sweep so QuotaClaims are pre-created
+  # within seconds of a consumer binding (bounds the self-service e2e Eventually
+  # timeouts). Must stay <= reservationTTL (default 60s); 15s keeps a wide margin.
+  resyncInterval: 15s
 
 webhook:
+  image:
+    repository: quota-controller
+    tag: integration-test
+    pullPolicy: Never
   kubeconfig:
     secretName: kcp-webhook-kubeconfig
     key: kubeconfig
