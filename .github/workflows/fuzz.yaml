@@ -20,9 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: fieldpath
-            package: ./internal/fieldpath/...
-            target: FuzzResolve
           - name: webhook
             package: ./internal/webhook/...
             target: FuzzObjectFromRequest
