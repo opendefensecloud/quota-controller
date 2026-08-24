@@ -28,6 +28,18 @@
         "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
       ],
       "groupName": "golangci-lint"
+    },
+    {
+      "matchPackageNames": [
+        "sigs.k8s.io/controller-runtime",
+        "https://github.com/kubernetes-sigs/controller-runtime"
+      ],
+      "groupName": "controller-runtime"
+    },
+    {
+      "description": "git-refs release branches carry no releaseTimestamp, so the repo-wide minimumReleaseAge would hold them pending forever",
+      "matchDatasources": ["git-refs"],
+      "minimumReleaseAge": "0"
     }
   ],
   "customManagers": [
@@ -66,10 +78,22 @@
         "tools.lock"
       ],
       "matchStrings": [
-        "(?<depName>[^\\s]+) (?<packageName>[^@]+)@(?<currentValue>v?[^\\s]+)"
+        "(?<depName>[^\\s]+) (?<packageName>[^@]+)@(?<currentValue>v[0-9][^\\s]*)"
       ],
       "versioningTemplate": "semver",
       "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "tools.lock"
+      ],
+      "matchStrings": [
+        "(?<depName>setup-envtest) \\S+@(?<currentValue>release-[0-9]+\\.[0-9]+)"
+      ],
+      "packageNameTemplate": "https://github.com/kubernetes-sigs/controller-runtime",
+      "datasourceTemplate": "git-refs",
+      "versioningTemplate": "regex:^release-(?<major>[0-9]+)\\.(?<minor>[0-9]+)$"
     }
   ]
 }
