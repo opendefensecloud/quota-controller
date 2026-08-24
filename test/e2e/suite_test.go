@@ -778,7 +778,7 @@ spec:
 
 	parsed, err := url.Parse(shardURL)
 	Expect(err).NotTo(HaveOccurred())
-	shardSvc := strings.SplitN(parsed.Hostname(), ".", 2)[0]
+	shardSvc, _, _ := strings.Cut(parsed.Hostname(), ".")
 	shardPort := parsed.Port()
 
 	if shardPort == "" {
