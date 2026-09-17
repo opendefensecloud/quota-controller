@@ -51,7 +51,7 @@ jobs:
           # Keep in sync with tools.lock, so CI and `make lint` run the same
           # linter. Without this the action defaults to "latest".
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.12.2
+          version: v2.13.2
 
   test:
     needs: lint
