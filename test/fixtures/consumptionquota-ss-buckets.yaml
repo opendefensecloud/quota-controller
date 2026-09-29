@@ -1,0 +1,16 @@
+# Self-service ConsumptionQuota: a low default so grants are observable, and an
+# autoApproveCeiling so requests at/below it are auto-approved and requests above
+# it fall to manual provider approval (spec §8).
+apiVersion: quota.opendefense.cloud/v1alpha1
+kind: ConsumptionQuota
+metadata:
+  name: quota-ss-buckets
+spec:
+  governed:
+    apiExportName: s3.example.com
+    group: s3.example.com
+    version: v1
+    resource: buckets
+  by: Count
+  defaultLimit: 2
+  autoApproveCeiling: 5

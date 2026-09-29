@@ -14,20 +14,18 @@ for the full design and [`architecture/`](architecture/) for ADRs.
 ## Status / Roadmap
 
 The [design spec](docs/superpowers/specs/2026-06-29-kcp-consumption-quota-design.md) splits the
-work into iterations. **Only enforcement (Iteration 1a) is implemented today** — the self-service
-half of Iteration 1 is designed but not yet built.
+work into iterations. **Iteration 1a (enforcement) and Iteration 1b (self-service) are both implemented.**
+Iteration 2 (aggregate quotas) is designed-for only.
 
 | Stage | Scope | Status |
 | --- | --- | --- |
 | **Iteration 1a — count enforcement** | Provider-set `defaultLimit`; strict, no-overshoot CAS-reserved admission webhook; per-workspace count accounting ([ADR-001](architecture/ADR-001-external-cas-quota-enforcement.md)) | ✅ **Implemented** — deployed & validated on `sysdemo` |
-| **Iteration 1b — self-service** | Consumer request/approval workflow: `QuotaGrant`, `QuotaClaim`, `autoApproveCeiling`, the consumer-facing `APIExport` ([ADR-002](architecture/ADR-002-self-service-quota-requests.md)) | 📐 **Designed; not functional.** Only reserved seams ship in 1a — the `autoApproveCeiling` API field (declared, ignored) and a grant-ready `Registry.LimitFor` signature. No `QuotaGrant`/`QuotaClaim`, no approval logic, no consumer `APIExport`, no plan yet. |
+| **Iteration 1b — self-service** | Consumer request/approval workflow: `QuotaGrant`, `QuotaClaim`, `autoApproveCeiling`, the consumer-facing `APIExport` ([ADR-002](architecture/ADR-002-self-service-quota-requests.md)); claim discovery via service export VW ([ADR-005](architecture/ADR-005-claim-discovery-via-service-export-vw.md)) | ✅ **Implemented** — see [getting-started](docs/getting-started.md) for self-service workflows |
 | **Iteration 2 — aggregate/property quotas** | Cap by an aggregate property (e.g. total size < 1 TiB), `by: Sum` | 📐 **Designed-for, not built** |
 
-> **Naming note.** The enforcement implementation plan
-> ([`2026-07-01-consumption-quota-phase1-enforcement.md`](docs/superpowers/plans/2026-07-01-consumption-quota-phase1-enforcement.md))
-> uses **Phase 1** (= Iteration 1a, enforcement) and **Phase 2** (= Iteration 1b, self-service).
-> That plan's "Phase 2" is the self-service half of Iteration 1 — **not** the spec's Iteration 2
-> (aggregate quotas). This README's Iteration 1a/1b/2 vocabulary is canonical.
+> **Naming note.** The enforcement [plan](docs/superpowers/plans/2026-07-01-consumption-quota-phase1-enforcement.md)
+> calls these Phase 1 / Phase 2; this README's Iteration 1a / 1b / 2 vocabulary (from the design
+> spec) is canonical.
 
 ## Getting started
 
@@ -69,6 +67,11 @@ task lint
 task run   # requires KUBECONFIG pointing at a kcp quota-ctrl workspace
 ```
 
+### Using the controller
+
+For the self-service quota workflows — requesting a higher limit, approving/rejecting, and portal
+visibility — see the [usage guide](docs/getting-started.md).
+
 ## Project layout
 
 ```
@@ -82,5 +85,5 @@ config/
 internal/     internal packages (reconcilers, webhook handlers, …)
 test/         integration tests (envtest + Ginkgo/Gomega)
 architecture/ Architecture Decision Records
-docs/         Design specs and planning notes
+docs/         Usage guide (getting-started.md), design specs, planning notes
 ```

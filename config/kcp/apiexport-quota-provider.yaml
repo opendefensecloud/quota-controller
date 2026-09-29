@@ -25,6 +25,14 @@ spec:
     schema: v260702-ca1f392.consumptionquotas.quota.opendefense.cloud
     storage:
       crd: {}
+  # QuotaGrant carries per-consumer decisions/overrides. Providers approve HERE,
+  # in their own workspace; the webhook watches grants via this export's VW for
+  # effective-limit resolution (spec §9).
+  - group: quota.opendefense.cloud
+    name: quotagrants
+    schema: v260708-c436ba1.quotagrants.quota.opendefense.cloud
+    storage:
+      crd: {}
   # QuotaUsage is intentionally omitted: it is an internal ledger managed
   # exclusively in the quota-ctrl workspace and is never exported to providers
   # or consumers.
