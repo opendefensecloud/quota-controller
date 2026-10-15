@@ -37,6 +37,37 @@
       "groupName": "controller-runtime"
     },
     {
+      "description": "Hold the k8s stack at what multicluster-runtime and the kcp multicluster-provider support (k8s 0.36 / controller-runtime 0.24); raise together with dependency-controller",
+      "matchDatasources": ["go"],
+      "matchPackageNames": [
+        "k8s.io/api",
+        "k8s.io/apiextensions-apiserver",
+        "k8s.io/apimachinery",
+        "k8s.io/client-go"
+      ],
+      "allowedVersions": "<0.37.0"
+    },
+    {
+      "description": "controller-runtime and multicluster-runtime 0.25 require k8s 0.37; see the k8s cap above",
+      "matchDatasources": ["go"],
+      "matchPackageNames": [
+        "sigs.k8s.io/controller-runtime",
+        "sigs.k8s.io/multicluster-runtime"
+      ],
+      "allowedVersions": "<0.25.0"
+    },
+    {
+      "description": "controller-gen 0.22 targets k8s 0.37; see the k8s cap above",
+      "matchPackageNames": ["sigs.k8s.io/controller-tools/cmd/controller-gen"],
+      "allowedVersions": "<0.22.0"
+    },
+    {
+      "description": "setup-envtest branch must match the controller-runtime minor; see the controller-runtime cap above",
+      "matchDatasources": ["git-refs"],
+      "matchPackageNames": ["https://github.com/kubernetes-sigs/controller-runtime"],
+      "allowedVersions": "/^release-0\\.(1[0-9]|2[0-4])$/"
+    },
+    {
       "description": "git-refs release branches carry no releaseTimestamp, so the repo-wide minimumReleaseAge would hold them pending forever",
       "matchDatasources": ["git-refs"],
       "minimumReleaseAge": "0"
