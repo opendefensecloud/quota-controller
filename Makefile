@@ -6,7 +6,7 @@ common.mk:
 	mv common.mk.download $@
 
 DOCKER ?= docker
-ENVTEST_K8S_VERSION ?= 1.31.0
+ENVTEST_K8S_VERSION ?= 1.36.2
 
 IMG_REGISTRY ?= ghcr.io/opendefensecloud
 IMG_TAG ?= latest
