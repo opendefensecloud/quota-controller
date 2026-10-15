@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.5@sha256:079e59808d2d252516e27e3f3a9c003740dee7f75e55aa71528766d52bcfc16a AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2@sha256:820153096fda4de6ac1b7194d12e416b7dd8f4e9a33d17e0345b111b945162d8 AS builder
 
 WORKDIR /workspace
 RUN go env -w GOMODCACHE=/root/.cache/go-build
