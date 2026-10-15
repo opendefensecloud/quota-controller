@@ -6,6 +6,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	apisv1alpha2 "github.com/kcp-dev/sdk/apis/apis/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -18,6 +19,10 @@ import (
 )
 
 const webhookFinalizer = "quota.opendefense.cloud/webhook"
+
+// identityHashRequeueInterval is how long to wait before re-checking an
+// APIExport whose identityHash kcp has not assigned yet.
+const identityHashRequeueInterval = 5 * time.Second
 
 // ConsumptionQuotaReconciler resolves the governed APIExport's identityHash,
 // stamps it on ConsumptionQuota.status.identityHash, feeds the limit registry
@@ -90,7 +95,7 @@ func (r *ConsumptionQuotaReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	id := ex.Status.IdentityHash
 	if id == "" {
 		// Identity not yet assigned by kcp; requeue until it is.
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: identityHashRequeueInterval}, nil
 	}
 
 	// --- Stamp status ---
