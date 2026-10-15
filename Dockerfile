@@ -25,13 +25,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o bin/quota-webhook ./cmd/webhook/
 
-FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240 AS controller
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS controller
 WORKDIR /
 COPY --from=controller-builder /workspace/bin/quota-controller .
 USER 65532:65532
 ENTRYPOINT ["/quota-controller"]
 
-FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240 AS webhook
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS webhook
 WORKDIR /
 COPY --from=webhook-builder /workspace/bin/quota-webhook .
 USER 65532:65532
@@ -40,7 +40,7 @@ ENTRYPOINT ["/quota-webhook"]
 # Combined image with both binaries (default target; used by the Helm chart — the
 # controller Deployment overrides command to /quota-controller and the webhook
 # Deployment overrides to /quota-webhook).
-FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 WORKDIR /
 COPY --from=controller-builder /workspace/bin/quota-controller .
 COPY --from=webhook-builder /workspace/bin/quota-webhook .
