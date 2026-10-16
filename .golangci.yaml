@@ -10,6 +10,11 @@ linters:
       default-signifies-exhaustive: true
     modernize:
       disable:
+        # embedlit rewrites `ObjectMeta: metav1.ObjectMeta{...}` into promoted
+        # fields (Go 1.27+). Dropping the embedded type name costs readers the
+        # context they need to place a field, for no safety gain. Mirrors
+        # dependency-controller's config.
+        - embedlit
         - omitzero
     nlreturn:
       block-size: 2

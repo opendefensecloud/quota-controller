@@ -1,12 +1,12 @@
 # Include ODC common make targets
-DEV_KIT_VERSION := v1.0.15
+DEV_KIT_VERSION := v2.2.0
 -include common.mk
 common.mk:
 	curl --fail -sSL https://raw.githubusercontent.com/opendefensecloud/dev-kit/$(DEV_KIT_VERSION)/common.mk -o common.mk.download && \
 	mv common.mk.download $@
 
 DOCKER ?= docker
-ENVTEST_K8S_VERSION ?= 1.31.0
+ENVTEST_K8S_VERSION ?= 1.36.2
 
 IMG_REGISTRY ?= ghcr.io/opendefensecloud
 IMG_TAG ?= latest
