@@ -114,7 +114,7 @@ jobs:
           done
       - name: Install syft
         id: syft
-        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       # Release assets, not attestations: the registry gets BuildKit's SPDX
       # attestation per platform, the release gets CycloneDX files that the
       # OCM pipeline can embed. syft resolves the index to the runner's own
