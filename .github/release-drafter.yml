@@ -1,0 +1,60 @@
+name-template: "$RESOLVED_VERSION"
+tag-template: "$RESOLVED_VERSION"
+version-template: "v$MAJOR.$MINOR.$PATCH"
+
+# Labels are applied by hand, so every category below is opt-in. Pull requests
+# without a matching label are still listed, just without a section heading —
+# their conventional-commit title prefix already says what they are.
+categories:
+  - title: "Features"
+    when:
+      labels:
+        - "feat"
+        - "feature"
+        - "enhancement"
+  - title: "Bug Fixes"
+    when:
+      labels:
+        - "fix"
+        - "bugfix"
+        - "bug"
+  - title: "Maintenance"
+    when:
+      labels:
+        - "docs"
+        - "doc"
+        - "documentation"
+        - "chore"
+  - title: "Excluded"
+    type: pre-exclude
+    when:
+      labels:
+        - "skip-changelog"
+  - title: "Major Version"
+    type: version-resolver
+    semver-increment: major
+    when:
+      labels:
+        - "major"
+  - title: "Minor Version"
+    type: version-resolver
+    semver-increment: minor
+    when:
+      labels:
+        - "minor"
+  - title: "Patch Version"
+    type: version-resolver
+    semver-increment: patch
+    when:
+      labels:
+        - "patch"
+
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+change-title-escapes: '\<*_&' # You can add # and @ to disable mentions, and add ` to disable code blocks.
+sort-by: title
+sort-direction: descending
+
+template: |
+  ## Changes
+
+  $CHANGES

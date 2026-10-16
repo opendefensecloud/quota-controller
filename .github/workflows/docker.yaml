@@ -2,6 +2,9 @@ name: Build/Publish Docker Image
 
 permissions: read-all
 
+env:
+  PLATFORMS: linux/amd64,linux/arm64
+
 on:
   release:
     types:
@@ -77,8 +80,13 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.PLATFORMS }}
           push: true
+          # BuildKit attaches one SBOM attestation per platform, which is what
+          # a multi-arch image needs. actions/attest can only ever name a
+          # single subject-digest, so it would have to pair one architecture's
+          # SBOM with the shared index digest.
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           target: ${{ matrix.image.target }}
@@ -104,30 +112,80 @@ jobs:
               --yes \
               "${tag}@${IMAGE_DIGEST}"
           done
-      - name: Extract first tag
-        id: first-tag
+      - name: Install syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+      # Release assets, not attestations: the registry gets BuildKit's SPDX
+      # attestation per platform, the release gets CycloneDX files that the
+      # OCM pipeline can embed. syft resolves the index to the runner's own
+      # platform unless told otherwise, so ask for each one explicitly.
+      - name: Generate per-architecture SBOMs
         env:
-          TAGS: ${{ steps.meta.outputs.tags }}
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          NAME: ${{ matrix.image.name }}
         run: |
-          mapfile -t TAG_LIST <<< "$TAGS"
-          echo "tag=${TAG_LIST[0]}" >> "$GITHUB_OUTPUT"
-      - name: Generate SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
-        with:
-          image: ${{ steps.first-tag.outputs.tag }}
-          format: 'cyclonedx-json'
-          output-file: 'sbom.cyclonedx.json'
-          upload-release-assets: false
-      - name: Attest SBOM
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
-        with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
-          subject-digest: ${{ steps.image.outputs.digest }}
-          sbom-path: 'sbom.cyclonedx.json'
-          push-to-registry: true
+          set -euo pipefail
+          mkdir -p sboms
+          for p in ${PLATFORMS//,/ }; do
+            "$SYFT" scan --platform "$p" "${IMAGE}@${DIGEST}" \
+              -o "cyclonedx-json=sboms/${NAME}-${p//\//-}.cyclonedx.json"
+          done
       - name: Attest provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
+          create-storage-record: false
+      - name: Sign SBOMs
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          # The .sigstore.json suffix is what OpenSSF Scorecard's
+          # Signed-Releases check looks for.
+          for f in sboms/*.cyclonedx.json; do
+            cosign sign-blob --yes --new-bundle-format=true \
+              --bundle "${f}.sigstore.json" "$f"
+          done
+      - name: Upload SBOMs for the release job
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sboms-${{ matrix.image.name }}
+          path: sboms/
+          retention-days: 1
+
+  # Immutable releases forbid uploading assets to an already-published release,
+  # so the SBOMs are attached while the release is still a draft. Publishing it
+  # stays a deliberate manual step (UI, or `gh release edit <tag> --draft=false`).
+  release:
+    name: Attach SBOMs to draft release
+    needs: buildAndPush
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download SBOMs from the image jobs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: sboms-*
+          merge-multiple: true
+          path: sboms
+      - name: Create draft release with SBOMs attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout in this job, so gh cannot infer the repository.
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Re-runs land on an existing draft; uploading to one is still
+          # allowed, only published releases are immutable.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" sboms/* --clobber
+          else
+            gh release create "$TAG" sboms/* --draft --generate-notes
+          fi
