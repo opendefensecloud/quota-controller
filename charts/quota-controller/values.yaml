@@ -16,7 +16,7 @@ controller:
   # quota-controller; must stay in sync with .github/workflows/docker.yaml).
   image:
     repository: ghcr.io/opendefensecloud/quota-controller
-    tag: ""
+    tag: "@sha256:8d96c0fac40383baa642896497aa2b58f5fab7eaef9b4c7dad75d033107ae4b0"
     pullPolicy: IfNotPresent
 
   # Secret containing a kubeconfig for connecting to the kcp quota-ctrl workspace.
@@ -69,7 +69,7 @@ webhook:
   # quota-webhook; must stay in sync with .github/workflows/docker.yaml).
   image:
     repository: ghcr.io/opendefensecloud/quota-webhook
-    tag: ""
+    tag: "@sha256:2c9478a922367b626bce60aa8acdf7aa2ec8218374522eec4bf6e151ac6af292"
     pullPolicy: IfNotPresent
 
   # Port the TLS admission server listens on (inside the container).
