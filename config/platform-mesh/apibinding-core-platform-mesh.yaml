@@ -1,0 +1,86 @@
+# Binds the platform-mesh core export so this workspace can host
+# ContentConfiguration objects (the type is exported from
+# root:platform-mesh-system). Content hosted here is routed to other
+# workspaces by the ui.platform-mesh.io/content-for label, matched against
+# their bound APIExports — the same convention the s3 provider uses.
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIBinding
+metadata:
+  name: core.platform-mesh.io
+spec:
+  # Accept the FULL claim set the core export offers — the same set every
+  # platform org-account binding accepts. This binding is consumed by TWO
+  # platform components, so a partial set breaks one of them:
+  #   1. security-operator (portal ReBAC): resolves this workspace's own
+  #      APIExports through the core VW to generate the OpenFGA types, so real
+  #      users don't get 403 on quota views (needs apiexports/apiresourceschemas/
+  #      apibindings).
+  #   2. rebac-authz-webhook cluster cache: reads core.kcp.io/logicalclusters
+  #      through this export for EVERY consumer. Omitting that claim leaves the
+  #      webhook looping on 403 forever trying to cache this workspace — which a
+  #      previous "deliberately minimal" version of this binding caused.
+  # NOTE: the workspaces/workspacetypes identityHash is the platform tenancy
+  # export's identity and is environment-specific — it is copied from this
+  # platform's org-account bindings. A different Platform Mesh install must
+  # substitute its own (the other claims are identity-agnostic).
+  permissionClaims:
+  - group: tenancy.kcp.io
+    identityHash: a64daad426c5046f82811b346b71dd1c7e79b4e37496f8d7df87b82b443bdcc2
+    resource: workspaces
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  - group: tenancy.kcp.io
+    identityHash: a64daad426c5046f82811b346b71dd1c7e79b4e37496f8d7df87b82b443bdcc2
+    resource: workspacetypes
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  - group: apis.kcp.io
+    identityHash: ""
+    resource: apibindings
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  - group: apis.kcp.io
+    identityHash: ""
+    resource: apiexports
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  - group: apis.kcp.io
+    identityHash: ""
+    resource: apiresourceschemas
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  - group: core.kcp.io
+    identityHash: ""
+    resource: logicalclusters
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  - group: ""
+    identityHash: ""
+    resource: secrets
+    selector:
+      matchAll: true
+    state: Accepted
+    verbs:
+    - '*'
+  reference:
+    export:
+      name: core.platform-mesh.io
+      path: root:platform-mesh-system

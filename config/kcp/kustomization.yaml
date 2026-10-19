@@ -7,4 +7,11 @@ resources:
   # It is applied to the quota-ctrl workspace but intentionally NOT referenced
   # by the quota-provider APIExport — consumers never see this resource.
   - apiresourceschema-quotausages.quota.opendefense.cloud.yaml
+  - apiresourceschema-quotagrants.quota.opendefense.cloud.yaml
+  - apiresourceschema-quotaclaims.quota.opendefense.cloud.yaml
   - apiexport-quota-provider.yaml
+  - apiexport-quota-consumer.yaml
+  # RBAC enforcing the quota-consumer export's maximalPermissionPolicy verbs
+  # matrix — see the AMENDMENT comment in apiexport-quota-consumer.yaml and
+  # mpp-quota-consumer-rbac.yaml itself (kcp v0.32.3 has no inline MPP rules).
+  - mpp-quota-consumer-rbac.yaml

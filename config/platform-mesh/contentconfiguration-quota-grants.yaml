@@ -1,0 +1,183 @@
+# Provider surface (spec §3.2): "Quota policies" (the caps I define for my
+# service) and "Quota approvals" (requests from MY consumers awaiting or
+# holding my decision). Direction-encoding names per spec §3.0 — a workspace
+# can be provider AND consumer at once, so bare "Quotas" is ambiguous.
+# createView only on grants (providers may create grants proactively).
+#
+# Edit-form constraint (same as the claims CC): the generic-detail-view Edit
+# form submits every detailView field with unset values coerced to "", so
+# nullable numeric fields (spec.grantedLimit/requestedLimit, autoApproveCeiling)
+# break the GraphQL Int type. They live in listView only. Providers approve by
+# editing spec.decision; the enforced number (spec.grantedLimit) is set via
+# kubectl (docs/getting-started.md) and surfaced as incomplete until then.
+apiVersion: ui.platform-mesh.io/v1alpha1
+kind: ContentConfiguration
+metadata:
+  name: quota-grants
+  labels:
+    ui.platform-mesh.io/content-for: quota-provider
+    ui.platform-mesh.io/entity: core_platform-mesh_io_account
+spec:
+  inlineConfiguration:
+    contentType: json
+    content: |
+      {
+        "name": "quota-grants",
+        "luigiConfigFragment": {
+          "data": {
+            "nodes": [
+              {
+                "entityType": "main.core_platform-mesh_io_account.namespace",
+                "pathSegment": "quota-policies",
+                "label": "Quota policies",
+                "icon": "rules",
+                "category": { "id": "quota", "label": "Quota", "isGroup": true, "collapsible": true, "order": 650 },
+                "order": 20,
+                "keepSelectedForChildren": true,
+                "url": "/assets/platform-mesh-portal-ui-wc.js#generic-list-view",
+                "webcomponent": { "selfRegistered": true },
+                "context": {
+                  "resourceDefinition": {
+                    "apiGroup": "quota_opendefense_cloud",
+                    "version": "v1alpha1",
+                    "entity": "ConsumptionQuota",
+                    "entityCollection": "ConsumptionQuotas",
+                    "scope": "Cluster",
+                    "namespace": null,
+                    "ui": {
+                      "listView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name" },
+                          { "label": "Resource", "property": "spec.governed.resource" },
+                          { "label": "Default limit", "property": "spec.defaultLimit" },
+                          { "label": "Auto-approve ceiling", "property": "spec.autoApproveCeiling" }
+                        ]
+                      },
+                      "detailView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name" },
+                          { "label": "Resource", "property": "spec.governed.resource" },
+                          { "label": "API group", "property": "spec.governed.group" },
+                          { "label": "Mode", "property": "spec.by" },
+                          { "label": "Default limit", "property": "spec.defaultLimit" },
+                          { "label": "Identity hash", "property": "status.identityHash" }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "pathSegment": ":policyId",
+                    "hideFromNav": true,
+                    "defineEntity": {
+                      "id": "quota_opendefense_cloud_consumptionquota",
+                      "contextKey": "policyId",
+                      "graphqlEntity": {
+                        "group": "quota_opendefense_cloud",
+                        "version": "v1alpha1",
+                        "kind": "ConsumptionQuota",
+                        "query": "{ metadata { name } }"
+                      }
+                    },
+                    "context": { "accountId": ":accountId", "resourceId": ":policyId" }
+                  }
+                ]
+              },
+              {
+                "entityType": "main.core_platform-mesh_io_account.namespace.quota_opendefense_cloud_consumptionquota",
+                "pathSegment": "dashboard",
+                "label": "Quota policy",
+                "url": "/assets/platform-mesh-portal-ui-wc.js#generic-detail-view",
+                "webcomponent": { "selfRegistered": true },
+                "defineEntity": { "id": "dashboard" },
+                "compound": { "children": [] }
+              },
+              {
+                "entityType": "main.core_platform-mesh_io_account.namespace",
+                "pathSegment": "quota-approvals",
+                "label": "Quota approvals",
+                "icon": "approvals",
+                "category": { "id": "quota", "label": "Quota", "isGroup": true, "collapsible": true, "order": 650 },
+                "order": 30,
+                "keepSelectedForChildren": true,
+                "url": "/assets/platform-mesh-portal-ui-wc.js#generic-list-view",
+                "webcomponent": { "selfRegistered": true },
+                "context": {
+                  "resourceDefinition": {
+                    "apiGroup": "quota_opendefense_cloud",
+                    "version": "v1alpha1",
+                    "entity": "QuotaGrant",
+                    "entityCollection": "QuotaGrants",
+                    "scope": "Cluster",
+                    "namespace": null,
+                    "ui": {
+                      "listView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name" },
+                          { "label": "Consumer", "property": "spec.consumer" },
+                          { "label": "Requested", "property": "spec.requestedLimit" },
+                          { "label": "Granted", "property": "spec.grantedLimit" },
+                          { "label": "Decision", "property": "spec.decision" },
+                          { "label": "Reason", "property": "spec.reason" }
+                        ]
+                      },
+                      "detailView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name" },
+                          { "label": "Consumer", "property": "spec.consumer" },
+                          { "label": "Policy", "property": "spec.governedRef" },
+                          { "label": "Resource", "property": "spec.governed.resource" },
+                          { "label": "API group", "property": "spec.governed.group" },
+                          { "label": "Identity hash", "property": "spec.governed.identityHash" },
+                          { "label": "Decision", "property": "spec.decision" },
+                          { "label": "Reason", "property": "spec.reason" },
+                          { "label": "Applied at", "property": "status.appliedAt" },
+                          { "label": "Phase", "property": "status.phase" }
+                        ]
+                      },
+                      "createView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name", "required": true },
+                          { "label": "Consumer (logical cluster)", "property": "spec.consumer", "required": true },
+                          { "label": "Policy (ConsumptionQuota name)", "property": "spec.governedRef", "required": true },
+                          { "label": "Resource", "property": "spec.governed.resource", "required": true },
+                          { "label": "API group", "property": "spec.governed.group", "required": true },
+                          { "label": "Identity hash", "property": "spec.governed.identityHash", "required": true },
+                          { "label": "Decision", "property": "spec.decision", "required": true, "placeholder": "Pending" }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "pathSegment": ":grantId",
+                    "hideFromNav": true,
+                    "defineEntity": {
+                      "id": "quota_opendefense_cloud_quotagrant",
+                      "contextKey": "grantId",
+                      "graphqlEntity": {
+                        "group": "quota_opendefense_cloud",
+                        "version": "v1alpha1",
+                        "kind": "QuotaGrant",
+                        "query": "{ metadata { name } }"
+                      }
+                    },
+                    "context": { "accountId": ":accountId", "resourceId": ":grantId" }
+                  }
+                ]
+              },
+              {
+                "entityType": "main.core_platform-mesh_io_account.namespace.quota_opendefense_cloud_quotagrant",
+                "pathSegment": "dashboard",
+                "label": "Quota grant",
+                "url": "/assets/platform-mesh-portal-ui-wc.js#generic-detail-view",
+                "webcomponent": { "selfRegistered": true },
+                "defineEntity": { "id": "dashboard" },
+                "compound": { "children": [] }
+              }
+            ]
+          }
+        }
+      }

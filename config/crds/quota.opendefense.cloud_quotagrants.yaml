@@ -1,0 +1,126 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: quotagrants.quota.opendefense.cloud
+spec:
+  group: quota.opendefense.cloud
+  names:
+    kind: QuotaGrant
+    listKind: QuotaGrantList
+    plural: quotagrants
+    singular: quotagrant
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          QuotaGrant is a per-(consumer, governed resource) limit override living in
+          the PROVIDER workspace (spec §6.2). The provider approves/rejects here; the
+          request/approval controller writes it on auto-approve. Enforcement's only
+          override source (§9).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              consumer:
+                description: Consumer is the consumer workspace's logical cluster
+                  name.
+                minLength: 1
+                type: string
+              decision:
+                default: Pending
+                description: GrantDecision is the provider's (or auto-approval's)
+                  verdict on a request.
+                enum:
+                - Pending
+                - Approved
+                - Rejected
+                type: string
+              governed:
+                description: Governed is the identity tuple, stamped by the controller.
+                properties:
+                  group:
+                    minLength: 1
+                    type: string
+                  identityHash:
+                    minLength: 1
+                    type: string
+                  resource:
+                    minLength: 1
+                    type: string
+                required:
+                - group
+                - identityHash
+                - resource
+                type: object
+              governedRef:
+                description: GovernedRef names the ConsumptionQuota this grant overrides
+                  (same workspace).
+                minLength: 1
+                type: string
+              grantedLimit:
+                description: GrantedLimit is the limit that takes effect when Decision
+                  is Approved.
+                format: int32
+                minimum: 0
+                type: integer
+              reason:
+                type: string
+              requestedLimit:
+                description: RequestedLimit mirrors the consumer's claim (informational
+                  for the provider).
+                format: int32
+                minimum: 0
+                type: integer
+            required:
+            - consumer
+            - decision
+            - governed
+            - governedRef
+            type: object
+          status:
+            properties:
+              appliedAt:
+                description: AppliedAt is when the controller propagated the decision
+                  (registry + claim).
+                format: date-time
+                type: string
+              phase:
+                description: |-
+                  Phase is the grant's effective state from the provider's standpoint: the
+                  decision the controller applied, except an Approved grant still awaiting the
+                  provider — a pending raise (requestedLimit > grantedLimit) or Approved with
+                  no grantedLimit — surfaces as Pending. Mirrors the consumer claim's phase.
+                enum:
+                - Pending
+                - Approved
+                - Rejected
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

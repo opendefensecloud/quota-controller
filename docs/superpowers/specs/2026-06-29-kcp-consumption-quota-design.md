@@ -2,18 +2,20 @@
 
 **Status:** Draft (brainstorming output, pending review)
 
-**Date:** 2026-06-29 (revised 2026-07-01 to add the self-service request/approval layer)
+**Date:** 2026-06-29 (revised 2026-07-01 to add the self-service request/approval layer;
+revised 2026-07-08 to resolve the Iteration-1b open questions for implementation, §14)
 
 **Related work:** [`dependency-controller`](https://github.com/opendefensecloud/dependency-controller) — this design deliberately reuses its topology, RBAC model, and webhook-installation machinery.
 
 **Decision records:** [ADR-001](../../../architecture/ADR-001-external-cas-quota-enforcement.md) (enforcement mechanism), [ADR-002](../../../architecture/ADR-002-self-service-quota-requests.md) (self-service request/approval).
 
-> **Implementation status (2026-07-03):** this spec designs all of Iteration 1, but delivery is
-> split. **Iteration 1a — count enforcement — is implemented and deployed.** **Iteration 1b — the
-> self-service request/approval workflow (§§ below + ADR-002) — is designed but NOT yet
-> implemented** (no plan exists for it). Iteration 2 (aggregate quotas) is designed-for only. The
-> enforcement plan calls 1a/1b "Phase 1/Phase 2". See the README "Status / Roadmap" for the
-> canonical status table.
+> **Implementation status (2026-07-09):** this spec designs all of Iteration 1, and both iterations
+> are now **implemented and verified end-to-end**. **Iteration 1a — count enforcement — is deployed
+> on sysdemo.** **Iteration 1b — the self-service request/approval workflow (§§ below + ADR-002,
+> ADR-005) — is implemented, 11/11 e2e scenarios pass.** Iteration 2 (aggregate quotas) is
+> designed-for only. The enforcement plan calls 1a/1b "Phase 1/Phase 2". See the README
+> "Status / Roadmap" and [`docs/getting-started.md`](../../getting-started.md) for self-service
+> workflows.
 
 ## 1. Problem
 
@@ -27,7 +29,7 @@ higher cap, which the provider can approve or reject (or which is auto-approved 
 provider-set ceiling) — and **see** their current cap and the state of any request.
 
 - **Iteration 1 (this spec):** cap by **count** *(1a — **implemented**)*, plus the full
-  self-service workflow *(1b — **designed, not yet implemented**)*.
+  self-service workflow *(1b — **implemented**)* — see [getting-started](../../getting-started.md) for usage.
 - **Iteration 2 (designed for, not built):** cap by an **aggregate property** — e.g. buckets
   with aggregated size < 1 TiB.
 
@@ -529,24 +531,41 @@ carry quantities). CAS, reconciler truth, and TTL are unchanged.
 
 ## 14. Open questions / to verify
 
-1. **CREATE webhook interception:** dep-ctrl proves a provider-workspace webhook intercepts
-   `DELETE` across consumers; `CREATE` is symmetric and expected to work — verify with a spike
-   (load-bearing kcp behavior).
-2. **QuotaClaim proactive-creation discovery (R11) — now load-bearing:** because consumers
-   can no longer `create` claims (§10), the controller is the *only* way a claim comes to
-   exist, so it must reliably cover every legitimate `(consumer, governed resource)` pair —
-   most likely by watching consumers' `APIBinding`s to the provider service export. Confirm the
-   signal and the bootstrap latency (a consumer briefly cannot request until its claim exists).
-3. **Identity resolution timing:** the controller stamps `identityHash` from the governed
-   `APIExport.status.identityHash`; confirm that status is populated before quotas are wired,
-   and decide behavior if a governed export's identity rotates.
-4. **Provider service VW access (reconciler):** confirm the bootstrap grant path and that a
-   single cross-consumer watch scales.
-5. **maximalPermissionPolicy verbs:** verify that granting `update/patch` while omitting
-   `create`/`delete` on `quotaclaims`, plus read-only `quotaclaims/status`, behaves as intended
-   for a bound (consumer) identity.
-6. **Workspace-nesting limitation:** dep-ctrl's resolver only handles direct children of
-   `root`; decide whether to lift it here.
+> **Resolution status (2026-07-08, decided for the Iteration-1b implementation round):**
+> #1 and #4 were answered by the 1a deployment; #2, #3, #5, and #6 are decided/verified below.
+
+1. **CREATE webhook interception** — ~~verify with a spike~~ **Verified by 1a:** the
+   provider-workspace webhook intercepts `CREATE` across consumer workspaces (e2e suite +
+   `sysdemo` deployment).
+2. **QuotaClaim proactive-creation discovery (R11)** — ~~decided: spike-first~~ ✅ **Resolved:** service-export VW approach holds. The 1b spike verified the governed service APIExport's virtual workspace lists consumers' bindings at *binding* time (before any governed object exists), with no new access required. See [ADR-005](../../../architecture/ADR-005-claim-discovery-via-service-export-vw.md) for the discovery decision and [1b spike notes](./2026-07-08-1b-spike-notes.md) for verification evidence (kcp v0.32.3).
+   Discovery reuses the accounting manager's existing VW provider — no new permissionClaim.
+   **Claim GC mirrors discovery:** when a `(consumer, governed resource)` pair disappears
+   (unbind), the controller deletes its pre-created `QuotaClaim`; `QuotaGrant`s are
+   provider-owned decision records and stay untouched.
+3. **Identity resolution timing / rotation — decided: rotation = new identity, no migration.**
+   1a already resolves `identityHash` before wiring quotas. If a governed export's identity
+   rotates, every grant/claim/ledger keyed on the old tuple goes stale by construction: the
+   controller re-stamps the `ConsumptionQuota`, pre-creates fresh claims, and surfaces an
+   `IdentityRotated` condition; consumers fall back to `defaultLimit` until the provider
+   re-approves. Grants are never migrated automatically — a rotation is a provider-initiated
+   trust event, and silent migration would forge approvals against a new identity.
+4. **Provider service VW access (reconciler)** — ~~confirm~~ **Grant path verified by 1a**
+   (per-provider opt-in RBAC + per-governed-export accounting managers, ADR-004). Watch-stream
+   scaling was assessed rather than load-tested; improvements (metadata-only informers,
+   per-export sub-manager merging) are tracked in `docs/improvement-backlog.md`.
+5. **maximalPermissionPolicy verbs** — ✅ **Verified in 1b:** confirmed that granting
+   `update/patch` while omitting `create`/`delete` on `quotaclaims`, plus read-only
+   `quotaclaims/status`, behaves as intended for a bound (consumer) identity. See [1b spike notes](./2026-07-08-1b-spike-notes.md) (Question 2, verb matrix) for proof; pinned by e2e scenario 5 (maximalPermissionPolicy enforcement).
+6. **Workspace-nesting limitation — decided: keep for 1b.** Provider workspaces remain direct
+   children of `root` (1a behavior); lifting the resolver limitation stays on the improvement
+   backlog and is orthogonal to self-service.
+
+**1b delivery decisions (2026-07-08):** the request/approval controller (§5.3) runs inside the
+existing leader-elected controller binary — no third deployment. `QuotaGrant` ships in the
+**quota-provider** export's schemas, so the webhook's registry watcher gains it as a second
+watched type for effective-limit resolution (§9) over the existing VW; `QuotaClaim` ships via
+the new **quota-consumer** export carrying the `maximalPermissionPolicy` (§10). Downgrade
+requests remain out of scope (§13). The discovery mechanism (#2) is recorded in [ADR-005](../../../architecture/ADR-005-claim-discovery-via-service-export-vw.md).
 
 ## 15. Testing strategy
 

@@ -1,0 +1,38 @@
+# Per-provider opt-in RBAC (ADR-004 / chart template provider-rbac.yaml):
+# the controller reads the governed service APIExport (identityHash), its
+# APIResourceSchemas and its APIExportEndpointSlice via a DIRECT workspace
+# client, and watches governed objects via apiexports/content. Applied to the
+# s3-provider workspace during e2e setup — without it the ConsumptionQuota
+# reconciler cannot resolve the governed export and enforcement never starts.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller:provider-service-apiexport-reader
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports"]
+    resourceNames: ["s3.example.com"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["s3.example.com"]
+    verbs: ["get", "list", "watch"]
+  # The slice name is derived at runtime, so it cannot be constrained
+  # with resourceNames (mirrors charts/quota-controller/templates/provider-rbac.yaml).
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiresourceschemas", "apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller:provider-service-apiexport-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller:provider-service-apiexport-reader
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "system:serviceaccount:quota-system:quota-controller"
