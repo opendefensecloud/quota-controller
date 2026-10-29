@@ -3,9 +3,6 @@ name: Publish Helm Chart
 permissions: read-all
 
 on:
-  release:
-    types:
-      - published
   push:
     tags:
       - v*
@@ -25,10 +22,11 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    # Release charts are pushed once, on the tag push. Publishing the release
+    # must not push again, or the version tag moves away from the signed digest.
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ok-to-helm')) ||
-      (github.event_name == 'release' && github.event.action == 'published')
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ok-to-helm'))
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
