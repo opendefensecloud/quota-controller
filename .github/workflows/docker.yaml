@@ -6,9 +6,6 @@ env:
   PLATFORMS: linux/amd64,linux/arm64
 
 on:
-  release:
-    types:
-      - published
   push:
     branches:
       - main
@@ -38,11 +35,13 @@ jobs:
       id-token: write
       attestations: write
     name: Build and Publish Docker Image
+    # Release images are built once, on the tag push. Publishing the release
+    # must not rebuild them, or the version tags move away from the digests
+    # the signed SBOMs and provenance cover.
     if: |
       github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ok-to-image')) ||
-      (github.event_name == 'release' && github.event.action == 'published')
-    runs-on: ubuntu-latest
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ok-to-image'))
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -164,7 +163,7 @@ jobs:
     name: Attach SBOMs to draft release
     needs: buildAndPush
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
