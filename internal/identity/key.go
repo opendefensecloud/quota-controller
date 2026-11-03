@@ -1,4 +1,4 @@
-// Copyright 2026 BWI GmbH and Quota Controller contributors
+// Copyright BWI GmbH and Quota Controller contributors
 // SPDX-License-Identifier: Apache-2.0
 
 package identity

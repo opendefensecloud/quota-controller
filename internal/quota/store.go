@@ -1,4 +1,4 @@
-// Copyright 2026 BWI GmbH and Quota Controller contributors
+// Copyright BWI GmbH and Quota Controller contributors
 // SPDX-License-Identifier: Apache-2.0
 
 // Package quota wraps the pure accounting logic in a compare-and-swap loop against
