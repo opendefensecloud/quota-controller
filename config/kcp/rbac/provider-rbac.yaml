@@ -1,8 +1,9 @@
-# kcp RBAC for the quota-controller — PROVIDER workspace, once per provider.
+# kcp RBAC for the quota-controller — PROVIDER workspace, once per governed service APIExport.
 #
 # The provider applies this in its own workspace (e.g. root:my-provider), NOT
 # in the quota-ctrl workspace:
 #
+#   CONTROLLER_IDENTITY=system:serviceaccount:quota-system:quota-controller \
 #   SERVICE_APIEXPORT=my-service envsubst < config/kcp/rbac/provider-rbac.yaml | \
 #     kubectl --context root:my-provider apply -f -
 #
@@ -20,7 +21,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: quota-controller:provider-service-apiexport-reader
+  name: quota-controller:provider-service-apiexport-reader-${SERVICE_APIEXPORT}
 rules:
   - apiGroups: ["apis.kcp.io"]
     resources: ["apiexports"]
@@ -40,11 +41,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: quota-controller:provider-service-apiexport-reader
+  name: quota-controller:provider-service-apiexport-reader-${SERVICE_APIEXPORT}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: quota-controller:provider-service-apiexport-reader
+  name: quota-controller:provider-service-apiexport-reader-${SERVICE_APIEXPORT}
 subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: User

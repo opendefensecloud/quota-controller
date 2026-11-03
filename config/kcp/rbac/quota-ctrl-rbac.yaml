@@ -31,11 +31,31 @@ rules:
   - apiGroups: ["quota.opendefense.cloud"]
     resources: ["quotausages", "quotausages/status", "consumptionquotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
-  # Leader-election lease (controller only; lives in this workspace's
-  # "default" namespace, see controller.leaderElectionNamespace in the chart).
+---
+# Leader-election lease, controller only (the webhook runs without leader
+# election). The lease lives in this workspace's "default" namespace, see
+# controller.leaderElectionNamespace in the chart.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-leader-election
+rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-leader-election
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-leader-election
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${CONTROLLER_IDENTITY}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
