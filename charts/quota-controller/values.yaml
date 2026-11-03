@@ -127,15 +127,3 @@ webhook:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-
-# Per-provider RBAC: apply in each provider workspace to grant the accounting
-# reconciler read access to that provider's service APIExport content.
-# See templates/provider-rbac.yaml for details.
-providerRBAC:
-  enabled: false
-  # Name of the provider's service APIExport (e.g. "my-service").
-  serviceAPIExportName: ""
-  # Override the controller SA name if it differs from the chart default.
-  controllerServiceAccountName: ""
-  # Override the controller namespace if the quota-controller is in a different ns.
-  controllerNamespace: ""

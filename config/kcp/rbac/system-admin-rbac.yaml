@@ -1,0 +1,40 @@
+# kcp RBAC for the quota-controller webhook — SYSTEM:ADMIN workspace, per shard.
+#
+# Apply with a system:masters identity over a direct connection to EACH shard
+# (not through the front-proxy):
+#
+#   envsubst < config/kcp/rbac/system-admin-rbac.yaml | \
+#     kubectl --server https://<shard>/clusters/system:admin apply --validate=false -f -
+#
+# Placeholders:
+#   ${WEBHOOK_IDENTITY} -> the webhook's kcp user,
+#                          e.g. system:serviceaccount:quota-system:quota-webhook
+#
+# kcp's BootstrapPolicyAuthorizer reads RBAC from the local shard's
+# system:admin only — bindings do not propagate across shards — so this must
+# be applied once per shard. Within a shard the binding applies to every
+# workspace, so the webhook can get/list governed resources in any consumer
+# workspace without per-workspace RBAC. --validate=false because system:admin
+# does not serve OpenAPI.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-webhook
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-webhook
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${WEBHOOK_IDENTITY}
