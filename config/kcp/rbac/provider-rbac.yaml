@@ -1,0 +1,52 @@
+# kcp RBAC for the quota-controller — PROVIDER workspace, once per governed service APIExport.
+#
+# The provider applies this in its own workspace (e.g. root:my-provider), NOT
+# in the quota-ctrl workspace:
+#
+#   CONTROLLER_IDENTITY=system:serviceaccount:quota-system:quota-controller \
+#   SERVICE_APIEXPORT=my-service envsubst < config/kcp/rbac/provider-rbac.yaml | \
+#     kubectl --context root:my-provider apply -f -
+#
+# Placeholders:
+#   ${CONTROLLER_IDENTITY} -> the controller's kcp user,
+#                             e.g. system:serviceaccount:quota-system:quota-controller
+#   ${SERVICE_APIEXPORT}   -> name of the provider's service APIExport
+#
+# The controller reads the governed service APIExport, its APIResourceSchema and
+# its APIExportEndpointSlice through a direct provider-workspace client (the
+# quota-provider virtual workspace does not serve apis.kcp.io types, see
+# ADR-004), and the accounting reconciler watches the governed objects across
+# every consumer workspace through the service APIExport's virtual workspace.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller:provider-service-apiexport-reader-${SERVICE_APIEXPORT}
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports"]
+    resourceNames: ["${SERVICE_APIEXPORT}"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["${SERVICE_APIEXPORT}"]
+    verbs: ["get", "list", "watch"]
+  # The APIResourceSchema and the APIExportEndpointSlice are discovered by name
+  # at runtime (the slice name is derived, not fixed), so they cannot be
+  # constrained with resourceNames.
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiresourceschemas", "apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller:provider-service-apiexport-reader-${SERVICE_APIEXPORT}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller:provider-service-apiexport-reader-${SERVICE_APIEXPORT}
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${CONTROLLER_IDENTITY}

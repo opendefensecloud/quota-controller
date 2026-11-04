@@ -75,10 +75,11 @@ task run   # requires KUBECONFIG pointing at a kcp quota-ctrl workspace
 api/          CRD types and deepcopy-generated code
 cmd/
   controller/ main entrypoint
+charts/       Helm chart for the host cluster (deployments, services, TLS)
 config/
   crds/       generated CustomResourceDefinitions
-  rbac/       ClusterRole / ClusterRoleBinding manifests
-  webhook/    ValidatingWebhookConfiguration
+  kcp/        APIResourceSchemas and the quota-provider APIExport
+    rbac/     kcp RBAC, applied per workspace (see the header of each file)
 internal/     internal packages (reconcilers, webhook handlers, …)
 test/         integration tests (envtest + Ginkgo/Gomega)
 architecture/ Architecture Decision Records

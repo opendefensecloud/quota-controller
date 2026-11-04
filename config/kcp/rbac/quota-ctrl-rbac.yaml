@@ -1,0 +1,74 @@
+# kcp RBAC for the quota-controller and webhook — QUOTA-CTRL workspace.
+#
+# Apply with a privileged identity into the workspace that holds the
+# quota-provider APIExport (the one the components' kubeconfigs point to):
+#
+#   envsubst < config/kcp/rbac/quota-ctrl-rbac.yaml | kubectl --context root:cloud-api-system apply -f -
+#
+# Placeholders:
+#   ${CONTROLLER_IDENTITY} -> the controller's kcp user,
+#                             e.g. system:serviceaccount:quota-system:quota-controller
+#   ${WEBHOOK_IDENTITY}    -> the webhook's kcp user,
+#                             e.g. system:serviceaccount:quota-system:quota-webhook
+#
+# Both components:
+# 1. Discover the VW URL via APIExportEndpointSlice
+# 2. Access the quota-provider APIExport virtual workspace (apiexports/content)
+# 3. Read and write QuotaUsage and ConsumptionQuota objects
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-quotactrl
+rules:
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexportendpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apis.kcp.io"]
+    resources: ["apiexports/content"]
+    resourceNames: ["quota-provider"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["quota.opendefense.cloud"]
+    resources: ["quotausages", "quotausages/status", "consumptionquotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+# Leader-election lease, controller only (the webhook runs without leader
+# election). The lease lives in this workspace's "default" namespace, see
+# controller.leaderElectionNamespace in the chart.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-leader-election
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-leader-election
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-leader-election
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${CONTROLLER_IDENTITY}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-quotactrl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-quotactrl
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${CONTROLLER_IDENTITY}
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${WEBHOOK_IDENTITY}
