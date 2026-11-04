@@ -1,0 +1,103 @@
+# Consumer surface (spec §3.1): "My quotas" — the limits that apply to THIS
+# workspace and the requests it makes. Deliberately NO createView: consumers
+# cannot create claims (maximalPermissionPolicy); the controller pre-creates
+# them (ADR-002 policy, ADR-005 discovery). Label routes this to every
+# workspace bound to quota-consumer.
+#
+# Edit-form constraint: the portal's generic-detail-view builds its Edit form
+# from detailView.fields and submits the whole object, coercing any unset value
+# to "". A nullable numeric field (status.grantedLimit/effectiveLimit) therefore
+# serialises as "" and the GraphQL Int type rejects it, breaking the "request a
+# raise" edit. So numeric status stays in listView only (display, never
+# submitted); detailView keeps the editable spec.requestedLimit and string
+# status. Do not add *int32 status fields to detailView.
+apiVersion: ui.platform-mesh.io/v1alpha1
+kind: ContentConfiguration
+metadata:
+  name: quota-claims
+  labels:
+    ui.platform-mesh.io/content-for: quota-consumer
+    ui.platform-mesh.io/entity: core_platform-mesh_io_account
+spec:
+  inlineConfiguration:
+    contentType: json
+    content: |
+      {
+        "name": "quota-claims",
+        "luigiConfigFragment": {
+          "data": {
+            "nodes": [
+              {
+                "entityType": "main.core_platform-mesh_io_account.namespace",
+                "pathSegment": "my-quotas",
+                "label": "My quotas",
+                "icon": "performance",
+                "category": { "id": "quota", "label": "Quota", "isGroup": true, "collapsible": true, "order": 650 },
+                "order": 10,
+                "keepSelectedForChildren": true,
+                "url": "/assets/platform-mesh-portal-ui-wc.js#generic-list-view",
+                "webcomponent": { "selfRegistered": true },
+                "context": {
+                  "resourceDefinition": {
+                    "apiGroup": "quota_opendefense_cloud",
+                    "version": "v1alpha1",
+                    "entity": "QuotaClaim",
+                    "entityCollection": "QuotaClaims",
+                    "scope": "Cluster",
+                    "namespace": null,
+                    "ui": {
+                      "listView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name" },
+                          { "label": "Resource", "property": "spec.governed.resource" },
+                          { "label": "Phase", "property": "status.phase" },
+                          { "label": "Effective limit", "property": "status.effectiveLimit" },
+                          { "label": "Requested", "property": "spec.requestedLimit" },
+                          { "label": "Reason", "property": "status.reason" }
+                        ]
+                      },
+                      "detailView": {
+                        "fields": [
+                          { "label": "Name", "property": "metadata.name" },
+                          { "label": "Resource", "property": "spec.governed.resource" },
+                          { "label": "API group", "property": "spec.governed.group" },
+                          { "label": "Phase", "property": "status.phase" },
+                          { "label": "Requested", "property": "spec.requestedLimit" },
+                          { "label": "Reason", "property": "status.reason" },
+                          { "label": "Last transition", "property": "status.lastTransitionTime" }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "pathSegment": ":claimId",
+                    "hideFromNav": true,
+                    "defineEntity": {
+                      "id": "quota_opendefense_cloud_quotaclaim",
+                      "contextKey": "claimId",
+                      "graphqlEntity": {
+                        "group": "quota_opendefense_cloud",
+                        "version": "v1alpha1",
+                        "kind": "QuotaClaim",
+                        "query": "{ metadata { name } }"
+                      }
+                    },
+                    "context": { "accountId": ":accountId", "resourceId": ":claimId" }
+                  }
+                ]
+              },
+              {
+                "entityType": "main.core_platform-mesh_io_account.namespace.quota_opendefense_cloud_quotaclaim",
+                "pathSegment": "dashboard",
+                "label": "Quota claim",
+                "url": "/assets/platform-mesh-portal-ui-wc.js#generic-detail-view",
+                "webcomponent": { "selfRegistered": true },
+                "defineEntity": { "id": "dashboard" },
+                "compound": { "children": [] }
+              }
+            ]
+          }
+        }
+      }

@@ -150,9 +150,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	grants := &grantWatcher{mgr: mgr, reg: reg, known: map[string]grantEntry{}}
+	if err := mcbuilder.ControllerManagedBy(mgr).
+		Named("grant-watcher").
+		For(&v1alpha1.QuotaGrant{}).
+		Complete(mcreconcile.Func(grants.Reconcile)); err != nil {
+		setupLog.Error(err, "unable to create grant watcher")
+		os.Exit(1)
+	}
+
 	// Populate the registry before serving admission. Fail-closed: readyz stays
-	// NOT ready until the initial ConsumptionQuota list has synced, so kcp does
-	// not route CREATEs (which fail closed) at a webhook with an empty registry.
+	// NOT ready until the initial ConsumptionQuota AND QuotaGrant lists have
+	// synced, so kcp does not route CREATEs (which fail closed) at a webhook
+	// with an empty (or partially-seeded) registry.
 	initialized := make(chan struct{})
 	if err := mgr.GetLocalManager().Add(manager.RunnableFunc(func(ctx context.Context) error {
 		if err := watcher.PopulateRegistry(ctx); err != nil {

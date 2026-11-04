@@ -25,7 +25,7 @@ type validatorDispatcher struct {
 	initialized <-chan struct{}
 	log         logr.Logger
 
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	handlers map[registry.ResourceRef]http.Handler
 }
 
@@ -60,21 +60,33 @@ func (d *validatorDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	d.handlerFor(ref).ServeHTTP(w, r)
 }
 
-// handlerFor returns the admission handler for ref, constructing it on first use.
+// handlerFor returns the admission handler for ref, constructing it on first
+// use. The governed-resource set is small and fixed after warm-up, so the
+// steady state is a pure read: take the shared read lock first and only escalate
+// to the exclusive lock on a cache miss, letting concurrent admission requests
+// resolve their handlers in parallel.
 func (d *validatorDispatcher) handlerFor(ref registry.ResourceRef) http.Handler {
+	d.mu.RLock()
+	h, ok := d.handlers[ref]
+	d.mu.RUnlock()
+	if ok {
+		return h
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
+	// Double-check under the write lock: another request may have constructed
+	// the handler between the RUnlock above and acquiring the write lock.
 	if h, ok := d.handlers[ref]; ok {
 		return h
 	}
 
 	v := &webhook.CreationValidator{Reg: d.reg, Store: d.store}
 	v.SetResource(ref)
-	h := &admission.Webhook{Handler: v}
-	d.handlers[ref] = h
+	built := &admission.Webhook{Handler: v}
+	d.handlers[ref] = built
 
-	return h
+	return built
 }
 
 // parseValidatePath parses /validate/{group}/{resource}/{identityHash}. The group

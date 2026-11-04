@@ -50,6 +50,21 @@ const (
 	wsS3Provider = "s3-provider"
 	wsConsumer1  = "consumer1"
 	wsConsumer2  = "consumer2"
+
+	// Self-service topology (spec §15). Two providers export the SAME
+	// group/resource (s3.example.com/buckets) from distinct workspaces, so their
+	// APIExport identityHashes differ — that is what scenario 6 keys off. Three
+	// consumers bind provider A (one per grant-lifecycle scenario, so each starts
+	// from a fresh grant); one consumer binds provider B.
+	wsSSProviderA = "ss-provider-a"
+	wsSSProviderB = "ss-provider-b"
+	wsSSCAuto     = "ssc-auto"   // scenarios 1, 2, 5
+	wsSSCManual   = "ssc-manual" // scenario 3
+	wsSSCReject   = "ssc-reject" // scenario 4
+	wsSSCSecond   = "ssc-second" // scenario 6 (bound to provider B)
+
+	// ConsumptionQuota name used in both self-service providers.
+	ssCQName = "quota-ss-buckets"
 )
 
 var (
@@ -63,6 +78,11 @@ var (
 	// Per-component kubeconfigs for in-cluster pods.
 	controllerKubeconfigPath string
 	webhookKubeconfigPath    string
+
+	// Host kubeconfig for the adversarial consumer-admin identity used by the
+	// maximalPermissionPolicy scenario (system:authenticated + cluster-admin in
+	// its own workspace). Built in setupSelfServiceWorkspaces.
+	sscAutoAdminKubeconfig string
 
 	// In-cluster front-proxy base URL (extracted from kcp-operator kubeconfig).
 	inClusterFPURL string
@@ -254,6 +274,9 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	By("setting up kcp workspaces")
 	setupKCPWorkspaces()
+
+	By("setting up self-service workspaces")
+	setupSelfServiceWorkspaces()
 
 	By("bootstrapping RBAC")
 	bootstrapRBAC()
@@ -874,12 +897,23 @@ func setupKCPWorkspaces() {
 		})
 	}
 
-	// Apply quota-ctrl APIResourceSchemas and APIExport.
-	kcpctl(wsQuotaCtrl, "apply", "-f", filepath.Join(rootDir, "config/kcp"))
+	// Apply quota-ctrl APIResourceSchemas and APIExport. Use -k: since kubectl
+	// v1.36, `apply -f <dir>` treats kustomization.yaml as a resource and fails
+	// with `no matches for kind "Kustomization"`.
+	kcpctl(wsQuotaCtrl, "apply", "-k", filepath.Join(rootDir, "config/kcp"))
+
+	// QuotaUsage is the INTERNAL ledger: not exported, so the APIResourceSchema
+	// alone does not serve it in quota-ctrl. Install it as a plain CRD there
+	// (mirrors the production deployment).
+	kcpctl(wsQuotaCtrl, "apply", "-f", filepath.Join(rootDir, "config/crds/quota.opendefense.cloud_quotausages.yaml"))
 
 	// Apply S3 provider resources.
 	kcpctl(wsS3Provider, "apply", "-f", filepath.Join(fixturesDir, "apiresourceschema-buckets.s3.example.com.yaml"))
 	kcpctl(wsS3Provider, "apply", "-f", filepath.Join(fixturesDir, "apiexport-s3.example.com.yaml"))
+
+	// Per-provider opt-in RBAC (ADR-004): direct reads on the governed export +
+	// apiexports/content for the accounting reconciler's cross-consumer watch.
+	kcpctl(wsS3Provider, "apply", "-f", filepath.Join(fixturesDir, "provider-rbac-s3.example.com.yaml"))
 
 	// Provider binds to quota-ctrl to accept the VWC permission claim.
 	applyFixtureToWS(wsS3Provider, filepath.Join(fixturesDir, "apibinding-quota-provider.yaml"), map[string]string{
@@ -920,6 +954,187 @@ func setupKCPWorkspaces() {
 			return nil
 		})
 	}
+}
+
+// setupSelfServiceWorkspaces provisions the self-service topology (spec §15):
+// two providers exporting the same governed resource from distinct workspaces
+// (distinct identityHashes) and four consumers, each binding the governed
+// service export plus the quota-consumer export. It also mints the adversarial
+// consumer-admin identity used by the maximalPermissionPolicy scenario.
+func setupSelfServiceWorkspaces() {
+	quotaCtrlPath := "root:" + wsQuotaCtrl
+	providers := []string{wsSSProviderA, wsSSProviderB}
+	// consumer -> its provider workspace.
+	consumers := map[string]string{
+		wsSSCAuto:   wsSSProviderA,
+		wsSSCManual: wsSSProviderA,
+		wsSSCReject: wsSSProviderA,
+		wsSSCSecond: wsSSProviderB,
+	}
+
+	allWorkspaces := append([]string{}, providers...)
+	for c := range consumers {
+		allWorkspaces = append(allWorkspaces, c)
+	}
+
+	for _, ws := range allWorkspaces {
+		createWorkspace(ws)
+	}
+
+	for _, ws := range allWorkspaces {
+		wsName := ws
+		waitFor(time.Minute, fmt.Sprintf("workspace %s ready", wsName), func() error {
+			out, err := kcpctlRootNoFail("get", "workspace", wsName, "-o", "jsonpath={.status.phase}")
+			if err != nil {
+				return err
+			}
+
+			if strings.TrimSpace(out) != "Ready" {
+				return fmt.Errorf("workspace %s phase: %s", wsName, out)
+			}
+
+			return nil
+		})
+	}
+
+	// Provider setup: same governed s3 export + per-provider RBAC + quota-provider
+	// binding + a self-service ConsumptionQuota (defaultLimit=2, ceiling=5).
+	for _, prov := range providers {
+		kcpctl(prov, "apply", "-f", filepath.Join(fixturesDir, "apiresourceschema-buckets.s3.example.com.yaml"))
+		kcpctl(prov, "apply", "-f", filepath.Join(fixturesDir, "apiexport-s3.example.com.yaml"))
+		kcpctl(prov, "apply", "-f", filepath.Join(fixturesDir, "provider-rbac-s3.example.com.yaml"))
+		applyFixtureToWS(prov, filepath.Join(fixturesDir, "apibinding-quota-provider.yaml"), map[string]string{
+			"QUOTA_CTRL_PATH": quotaCtrlPath,
+		})
+		applyFixtureToWS(prov, filepath.Join(fixturesDir, "consumptionquota-ss-buckets.yaml"), nil)
+	}
+
+	// Consumer setup: bind the governed s3 export AND the quota-consumer export
+	// (no permissionClaims on the latter).
+	for consumer, prov := range consumers {
+		applyFixtureToWS(consumer, filepath.Join(fixturesDir, "apibinding-s3.example.com.yaml"), map[string]string{
+			"S3_PROVIDER_PATH": "root:" + prov,
+		})
+		applyFixtureToWS(consumer, filepath.Join(fixturesDir, "apibinding-quota-consumer.yaml"), map[string]string{
+			"QUOTA_CTRL_PATH": quotaCtrlPath,
+		})
+	}
+
+	// Wait for every binding to reach Bound.
+	type binding struct{ ws, name string }
+
+	var bindings []binding
+
+	for _, prov := range providers {
+		bindings = append(bindings, binding{prov, "quota-provider"})
+	}
+
+	for consumer := range consumers {
+		bindings = append(bindings, binding{consumer, "s3.example.com"}, binding{consumer, "quota-consumer"})
+	}
+
+	for _, b := range bindings {
+		bws, bname := b.ws, b.name
+		waitFor(2*time.Minute, fmt.Sprintf("binding %s in %s bound", bname, bws), func() error {
+			out, err := kcpctlNoFail(bws, "get", "apibinding", bname, "-o", "jsonpath={.status.phase}")
+			if err != nil {
+				return err
+			}
+
+			if strings.TrimSpace(out) != "Bound" {
+				return fmt.Errorf("phase: %s", out)
+			}
+
+			return nil
+		})
+	}
+
+	// Adversarial consumer-admin identity for the MPP scenario (scenario 5).
+	sscAutoAdminKubeconfig = buildConsumerAdminKubeconfig(wsSSCAuto)
+}
+
+// buildConsumerAdminKubeconfig mints a host-side kubeconfig for an identity that
+// is only `system:authenticated` (the realistic consumer principal) yet holds
+// cluster-admin INSIDE its own consumer workspace. That combination makes the
+// maximalPermissionPolicy assertions load-bearing: any create/delete/status
+// denial that remains must come from the export's MPP ceiling, not from missing
+// local RBAC. Returns the path to the rewritten kubeconfig.
+func buildConsumerAdminKubeconfig(ws string) string {
+	GinkgoHelper()
+	secretName := "e2e-" + ws + "-admin-kubeconfig"
+
+	applyToKind(fmt.Sprintf(`apiVersion: operator.kcp.io/v1alpha1
+kind: Kubeconfig
+metadata:
+  name: e2e-%[1]s-admin
+  namespace: %[2]s
+spec:
+  username: %[1]s-admin
+  groups:
+    - "system:authenticated"
+  validity: 8766h
+  secretRef:
+    name: %[3]s
+  target:
+    frontProxyRef:
+      name: kcp`, ws, kcpNamespace, secretName))
+
+	waitFor(2*time.Minute, secretName+" created", func() error {
+		_, err := kindctlNoFail("-n", kcpNamespace, "get", "secret", secretName, "-o", "jsonpath={.data.kubeconfig}")
+
+		return err
+	})
+
+	kcRaw := kindctlSecret(secretName)
+	kcBytes, err := decodeBase64(kcRaw)
+	Expect(err).NotTo(HaveOccurred())
+	serverURL := extractServerFromKubeconfig(kcBytes)
+	rewritten := strings.ReplaceAll(string(kcBytes), serverURL,
+		fmt.Sprintf("https://localhost:%s", frontProxyNodePort))
+	path := filepath.Join(tmpDir, ws+"-admin.kubeconfig")
+	Expect(os.WriteFile(path, []byte(rewritten), 0o600)).To(Succeed())
+
+	// Grant the identity cluster-admin in its own workspace (applied as kcp-admin).
+	applyFixtureToWS(ws, filepath.Join(fixturesDir, "consumer-admin-rbac.yaml"), map[string]string{
+		"CONSUMER_ADMIN": ws + "-admin",
+	})
+
+	// Gate on RBAC propagation: the identity can read claims in its workspace.
+	waitFor(time.Minute, "consumer-admin identity can list quotaclaims in "+ws, func() error {
+		_, err := asIdentityNoFail(path, ws, "get", "quotaclaims")
+
+		return err
+	})
+
+	return path
+}
+
+// asIdentityNoFail runs kubectl as a specific identity without failing.
+func asIdentityNoFail(kubeconfig, wsPath string, args ...string) (string, error) {
+	return runNoFail(kubectlBin, append([]string{
+		"--kubeconfig", kubeconfig,
+		"--server", fmt.Sprintf("https://localhost:%s/clusters/root:%s", frontProxyNodePort, wsPath),
+	}, args...)...)
+}
+
+// asIdentityStdin runs kubectl as a specific identity piping a manifest on stdin
+// (used for `create -f -`); returns combined output and the exit error.
+func asIdentityStdin(kubeconfig, wsPath, stdin string, args ...string) (string, error) {
+	full := append([]string{
+		"--kubeconfig", kubeconfig,
+		"--server", fmt.Sprintf("https://localhost:%s/clusters/root:%s", frontProxyNodePort, wsPath),
+	}, args...)
+
+	cmd := exec.CommandContext(context.Background(), kubectlBin, full...) //nolint:gosec
+	cmd.Stdin = strings.NewReader(stdin)
+
+	var buf bytes.Buffer
+
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+
+	return buf.String(), err
 }
 
 // createWorkspace creates a kcp workspace under root.

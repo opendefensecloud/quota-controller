@@ -1,0 +1,14 @@
+# Consumers bind the quota-consumer APIExport to see and request quota via
+# QuotaClaim. No permissionClaims are accepted on this export — the controller
+# pre-creates claims through the export's virtual workspace, and the
+# maximalPermissionPolicy (config/kcp/mpp-quota-consumer-rbac.yaml) governs what
+# a bound consumer may do to a claim.
+apiVersion: apis.kcp.io/v1alpha2
+kind: APIBinding
+metadata:
+  name: quota-consumer
+spec:
+  reference:
+    export:
+      path: ${QUOTA_CTRL_PATH}
+      name: quota-consumer

@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +32,8 @@ import (
 	"go.opendefense.cloud/quota-controller/internal/identity"
 	"go.opendefense.cloud/quota-controller/internal/kcp"
 	"go.opendefense.cloud/quota-controller/internal/quota"
+	"go.opendefense.cloud/quota-controller/internal/registry"
+	"go.opendefense.cloud/quota-controller/internal/selfservice"
 )
 
 // accountingManager owns the per-governed-export multicluster informers that
@@ -56,6 +57,13 @@ type accountingManager struct {
 	store   *quota.Store
 	resync  time.Duration
 	log     logr.Logger
+
+	// ensurer and policies wire the ADR-005 claim discovery Runnable into each
+	// sub-manager (see start()). Left nil by the 1a-only unit tests in
+	// accounting_test.go, which skips discovery entirely so those lifecycle
+	// specs stay valid without a self-service stack.
+	ensurer  *controller.ClaimEnsurer
+	policies *selfservice.PolicyIndex
 
 	// startFn launches the sub-manager for one governed export and must
 	// register sets[key] before a successful return (as start does). It exists
@@ -216,8 +224,7 @@ func (a *accountingManager) start(ctx context.Context, providerCluster string, g
 	// workspace-scoped client. The quota-provider virtual workspace does not serve
 	// apiexports/apiresourceschemas/apiexportendpointslices, so reading them via
 	// the VW client fails ("no matches for kind APIExport").
-	svcCfg := rest.CopyConfig(a.baseCfg)
-	svcCfg.Host = strings.TrimRight(a.baseCfg.Host, "/") + "/clusters/" + providerCluster
+	svcCfg := kcp.WorkspaceConfig(a.baseCfg, providerCluster)
 
 	directClient, err := client.New(svcCfg, client.Options{Scheme: a.scheme})
 	if err != nil {
@@ -235,7 +242,9 @@ func (a *accountingManager) start(ctx context.Context, providerCluster string, g
 	}
 
 	// Confirm the service export's VW is advertised before wiring the provider.
-	if _, err := kcp.VirtualWorkspaceURL(ctx, directClient, g.apiExportName); err != nil {
+	// Captured here and reused for claim discovery below (one endpoint-slice list).
+	svcVWURL, err := kcp.VirtualWorkspaceURL(ctx, directClient, g.apiExportName)
+	if err != nil {
 		return nil, fmt.Errorf("service export %s VW not ready: %w", g.apiExportName, err)
 	}
 
@@ -326,6 +335,33 @@ func (a *accountingManager) start(ctx context.Context, providerCluster string, g
 		}
 	})); err != nil {
 		return nil, fmt.Errorf("adding sweep runnable: %w", err)
+	}
+
+	// Claim discovery (ADR-005): skipped when the self-service stack is not
+	// wired in (a.ensurer == nil), which keeps the 1a-only lifecycle specs in
+	// accounting_test.go valid without a PolicyIndex/ClaimEnsurer.
+	if a.ensurer != nil {
+		svcVWClient, err := kcp.VWClient(a.baseCfg, svcVWURL, "*", a.scheme)
+		if err != nil {
+			return nil, fmt.Errorf("service VW client: %w", err)
+		}
+		ref := registry.ResourceRef{Group: g.group, Resource: g.resource, IdentityHash: g.identityHash}
+		disc := &claimDiscovery{
+			svcVWClient: svcVWClient,
+			exportName:  g.apiExportName,
+			ref:         ref,
+			defaultLimit: func() (int32, bool) {
+				p, ok := a.policies.Get(ref)
+
+				return p.DefaultLimit, ok
+			},
+			ensurer:  a.ensurer,
+			interval: a.resync,
+			log:      a.log.WithName("claim-discovery"),
+		}
+		if err := subMgr.GetLocalManager().Add(disc); err != nil {
+			return nil, fmt.Errorf("adding claim discovery runnable: %w", err)
+		}
 	}
 
 	set := &accountingSet{}

@@ -28,7 +28,9 @@ type ConsumptionQuotaSpec struct {
 	// DefaultLimit applies to every consumer workspace with no grant.
 	// +kubebuilder:validation:Minimum=0
 	DefaultLimit int32 `json:"defaultLimit"`
-	// AutoApproveCeiling is reserved for Phase 2 (self-service) and ignored in Phase 1.
+	// AutoApproveCeiling: QuotaClaim requests at/below this value are granted
+	// automatically; above it (or when omitted) they become Pending for manual
+	// provider approval (spec §8).
 	// +optional
 	AutoApproveCeiling *int32 `json:"autoApproveCeiling,omitempty"`
 }

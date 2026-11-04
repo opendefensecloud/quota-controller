@@ -13,7 +13,6 @@ import (
 	"github.com/kcp-dev/logicalcluster/v3"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -124,9 +123,11 @@ func (w *registryWatcher) forget(cqRef string) {
 	}
 }
 
-// PopulateRegistry lists every ConsumptionQuota from each shard's quota-provider
-// virtual workspace and seeds the registry. It runs once, after the manager
-// starts, and gates the readiness probe.
+// PopulateRegistry lists every ConsumptionQuota AND QuotaGrant from each
+// shard's quota-provider virtual workspace and seeds the registry (default
+// limits from ConsumptionQuotas, per-consumer overrides from Approved
+// QuotaGrants). It runs once, after the manager starts, and gates the
+// readiness probe.
 func (w *registryWatcher) PopulateRegistry(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("registry-watcher")
 
@@ -173,6 +174,26 @@ func (w *registryWatcher) PopulateRegistry(ctx context.Context) error {
 				w.remember(cqRef, cq)
 				count++
 			}
+
+			var grants v1alpha1.QuotaGrantList
+			if err := vwClient.List(ctx, &grants); err != nil {
+				lastErr = err
+				logger.Info("initial QuotaGrant list not ready yet; retrying", "error", err.Error())
+
+				return false, nil
+			}
+
+			for i := range grants.Items {
+				g := &grants.Items[i]
+				if !g.MirrorsOverride() {
+					continue
+				}
+				w.reg.SetGrant(g.Spec.Consumer, registry.ResourceRef{
+					Group:        g.Spec.Governed.Group,
+					Resource:     g.Spec.Governed.Resource,
+					IdentityHash: g.Spec.Governed.IdentityHash,
+				}, *g.Spec.GrantedLimit)
+			}
 		}
 
 		total, shards = count, len(vwClients)
@@ -214,10 +235,7 @@ func (w *registryWatcher) virtualWorkspaceClients(ctx context.Context) ([]client
 
 	clients := make([]client.Client, 0, len(urls))
 	for _, url := range urls {
-		vwCfg := rest.CopyConfig(localCfg)
-		vwCfg.Host = url + "/clusters/*"
-
-		vwClient, err := client.New(vwCfg, client.Options{Scheme: w.scheme})
+		vwClient, err := kcp.VWClient(localCfg, url, "*", w.scheme)
 		if err != nil {
 			return nil, fmt.Errorf("creating VW client for %s: %w", url, err)
 		}
