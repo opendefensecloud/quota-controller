@@ -48,9 +48,11 @@ multicluster-runtime sub-manager per distinct governed export
    accepts the permissionClaim but forgets to apply `provider-rbac.yaml`, the
    symptom is silently stalled accounting. Add a `ConsumptionQuota` status
    condition and an Event when accounting reads fail with Forbidden.
-7. **Automate the kcp RBAC bootstrap.** Avoid dependency-controller's
-   manual-fixture pattern: ship the bootstrap grants as chart-rendered manifests
-   or a documented installer step, so a new environment cannot skip them.
+7. **Automate the kcp RBAC bootstrap.** The grants ship as plain manifests in
+   `config/kcp/rbac/`, one per target workspace, and e2e applies exactly those
+   files. The Helm chart cannot render them: it installs into the host cluster,
+   not into kcp. Applying them is still a manual installer step; wire it into
+   the platform's kcp bootstrap so a new environment cannot skip it.
 
 ## Inherited limitations / housekeeping
 

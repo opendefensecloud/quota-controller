@@ -1,9 +1,16 @@
-# RBAC in the root workspace for the quota-controller.
-# Applied during e2e setup using a system:kcp:admin identity via front-proxy.
+# kcp RBAC for the quota-controller — ROOT workspace.
 #
-# Only the controller has rules here. The webhook's broad get/list access
-# lives in the system:admin workspace of the root shard (see
-# system-admin-rbac-bootstrap.yaml) and propagates shard-wide.
+# Apply with a privileged identity:
+#
+#   envsubst < config/kcp/rbac/root-rbac.yaml | kubectl --context root apply -f -
+#
+# Placeholders:
+#   ${CONTROLLER_IDENTITY} -> the controller's kcp user,
+#                             e.g. system:serviceaccount:quota-system:quota-controller
+#
+# kcp presents the components across the front-proxy as the virtual user
+# "system:serviceaccount:<namespace>:<name>", so every binding here uses a User
+# subject. A ServiceAccount subject only resolves inside its own logical cluster.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -30,4 +37,4 @@ roleRef:
 subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: User
-    name: "system:serviceaccount:quota-system:quota-controller"
+    name: ${CONTROLLER_IDENTITY}

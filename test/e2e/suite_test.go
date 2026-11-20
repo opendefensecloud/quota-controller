@@ -52,9 +52,17 @@ const (
 	wsConsumer2  = "consumer2"
 )
 
+// rbacIdentities fills the identity placeholders in config/kcp/rbac. They must
+// match the usernames of the component kubeconfigs (buildComponentKubeconfigs).
+var rbacIdentities = map[string]string{
+	"CONTROLLER_IDENTITY": "system:serviceaccount:" + quotaNamespace + ":quota-controller",
+	"WEBHOOK_IDENTITY":    "system:serviceaccount:" + quotaNamespace + ":quota-webhook",
+}
+
 var (
 	rootDir     string
 	fixturesDir string
+	kcpRBACDir  string
 	tmpDir      string
 
 	// Host kubeconfig for kcp via front-proxy NodePort.
@@ -159,6 +167,15 @@ func kcpctlRootNoFail(args ...string) (string, error) {
 // substitution. Retries on transient kcp authorization errors.
 func applyFixtureToWS(wsPath, file string, substitutions map[string]string) {
 	GinkgoHelper()
+	applyFixture(kcpHostKubeconfig,
+		fmt.Sprintf("https://localhost:%s/clusters/root:%s", frontProxyNodePort, wsPath),
+		file, substitutions)
+}
+
+// applyFixture applies a YAML fixture to an arbitrary kcp server URL with
+// placeholder substitution. Retries on transient kcp authorization errors.
+func applyFixture(kubeconfig, server, file string, substitutions map[string]string, extraArgs ...string) {
+	GinkgoHelper()
 	raw, err := os.ReadFile(file)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -167,11 +184,10 @@ func applyFixtureToWS(wsPath, file string, substitutions map[string]string) {
 		content = strings.ReplaceAll(content, "${"+k+"}", v)
 	}
 
-	waitFor(2*time.Minute, fmt.Sprintf("apply %s to %s", file, wsPath), func() error {
+	waitFor(2*time.Minute, fmt.Sprintf("apply %s to %s", file, server), func() error {
+		args := append([]string{"--kubeconfig", kubeconfig, "--server", server, "apply"}, extraArgs...)
 		cmd := exec.CommandContext(context.Background(), kubectlBin, //nolint:gosec
-			"--kubeconfig", kcpHostKubeconfig,
-			"--server", fmt.Sprintf("https://localhost:%s/clusters/root:%s", frontProxyNodePort, wsPath),
-			"apply", "-f", "-",
+			append(args, "-f", "-")...,
 		)
 		cmd.Stdin = strings.NewReader(content)
 		var buf bytes.Buffer
@@ -223,6 +239,7 @@ var _ = SynchronizedBeforeSuite(func() {
 	rootDir, err = filepath.Abs("../..")
 	Expect(err).NotTo(HaveOccurred())
 	fixturesDir = filepath.Join(rootDir, "test", "fixtures")
+	kcpRBACDir = filepath.Join(rootDir, "config", "kcp", "rbac")
 
 	tmpDir, err = os.MkdirTemp("", "quota-ctrl-e2e-*")
 	Expect(err).NotTo(HaveOccurred())
@@ -724,19 +741,25 @@ func decodeBase64(s string) ([]byte, error) {
 }
 
 // bootstrapRBAC creates RBAC for the controller and webhook identities.
+// bootstrapRBAC applies the shipped kcp RBAC from config/kcp/rbac, so e2e
+// exercises exactly what operators install.
 func bootstrapRBAC() {
 	// Webhook get/list via system:admin (shard-wide).
 	applySystemAdminRBAC("root", "rootShardRef")
 
 	// Controller RBAC in the root workspace.
-	run(kubectlBin, "--kubeconfig", kcpHostKubeconfig,
-		"--server", fmt.Sprintf("https://localhost:%s/clusters/root", frontProxyNodePort),
-		"apply", "-f", filepath.Join(fixturesDir, "root-rbac-bootstrap.yaml"))
+	applyFixture(kcpHostKubeconfig,
+		fmt.Sprintf("https://localhost:%s/clusters/root", frontProxyNodePort),
+		filepath.Join(kcpRBACDir, "root-rbac.yaml"), rbacIdentities)
 
 	// Controller + webhook RBAC in the quota-ctrl workspace.
-	run(kubectlBin, "--kubeconfig", kcpHostKubeconfig,
-		"--server", fmt.Sprintf("https://localhost:%s/clusters/root:%s", frontProxyNodePort, wsQuotaCtrl),
-		"apply", "-f", filepath.Join(fixturesDir, "quota-ctrl-rbac-bootstrap.yaml"))
+	applyFixtureToWS(wsQuotaCtrl, filepath.Join(kcpRBACDir, "quota-ctrl-rbac.yaml"), rbacIdentities)
+
+	// Controller read access to the S3 provider's service APIExport.
+	applyFixtureToWS(wsS3Provider, filepath.Join(kcpRBACDir, "provider-rbac.yaml"), map[string]string{
+		"CONTROLLER_IDENTITY": rbacIdentities["CONTROLLER_IDENTITY"],
+		"SERVICE_APIEXPORT":   "s3.example.com",
+	})
 }
 
 // applySystemAdminRBAC creates a system:masters kubeconfig targeting the given shard,
@@ -816,10 +839,9 @@ spec:
 	})
 
 	// --validate=false: system:admin does not serve OpenAPI.
-	run(kubectlBin, "--kubeconfig", sysKubeconfig,
-		"--server", fmt.Sprintf("https://localhost:%d/clusters/system:admin", localPort),
-		"apply", "--validate=false",
-		"-f", filepath.Join(fixturesDir, "system-admin-rbac-bootstrap.yaml"))
+	applyFixture(sysKubeconfig,
+		fmt.Sprintf("https://localhost:%d/clusters/system:admin", localPort),
+		filepath.Join(kcpRBACDir, "system-admin-rbac.yaml"), rbacIdentities, "--validate=false")
 }
 
 // pickFreePort asks the kernel for a free TCP port on localhost.
@@ -875,7 +897,7 @@ func setupKCPWorkspaces() {
 	}
 
 	// Apply quota-ctrl APIResourceSchemas and APIExport.
-	kcpctl(wsQuotaCtrl, "apply", "-f", filepath.Join(rootDir, "config/kcp"))
+	kcpctl(wsQuotaCtrl, "apply", "-k", filepath.Join(rootDir, "config/kcp"))
 
 	// Apply S3 provider resources.
 	kcpctl(wsS3Provider, "apply", "-f", filepath.Join(fixturesDir, "apiresourceschema-buckets.s3.example.com.yaml"))
