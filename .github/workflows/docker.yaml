@@ -1,6 +1,7 @@
 name: Build/Publish Docker Image
 
-permissions: read-all
+permissions:
+  contents: read
 
 env:
   PLATFORMS: linux/amd64,linux/arm64
